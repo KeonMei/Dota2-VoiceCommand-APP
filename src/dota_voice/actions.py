@@ -42,6 +42,7 @@ class ActionExecutor:
             "click_template": self._h_click_template,
             "click_point": self._h_click_point,
             "key_press": self._h_key_press,
+            "select_exclusive_role": self._h_select_exclusive_role,
         }
 
     def run_steps(self, steps: list[dict], context: dict[str, Any]) -> bool:
@@ -171,6 +172,45 @@ class ActionExecutor:
         raise ActionError(
             f"Элемент UI '{template_name}' не найден на экране за {retries} попыток "
             f"(проверьте калибровку шаблонов и разрешение экрана)"
+        )
+
+    def _h_select_exclusive_role(self, step: dict, context: dict) -> None:
+        target_role = context.get("role")
+        if not target_role:
+            raise ActionError("Шаг select_exclusive_role не получил роль из распознанной команды")
+
+        roles = self.config.get("roles", default={}) or {}
+        click_delay = float(self.config.get("delays", "between_ui_clicks", default=0.6))
+
+        for role_id in roles:
+            if role_id == target_role:
+                continue
+            selected_path = self.templates_dir / f"role_{role_id}_selected.png"
+            match = vision.find_template(selected_path, threshold=self.match_threshold)
+            if match is not None:
+                logger.debug("Role '%s' is currently selected, clicking it off", role_id)
+                pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
+                pyautogui.click()
+                time.sleep(click_delay)
+
+        target_selected_path = self.templates_dir / f"role_{target_role}_selected.png"
+        if vision.find_template(target_selected_path, threshold=self.match_threshold) is not None:
+            return
+
+        target_base_path = self.templates_dir / f"role_{target_role}.png"
+        retries = self._retries(step)
+        for attempt in range(1, retries + 1):
+            match = vision.find_template(target_base_path, threshold=self.match_threshold)
+            if match is not None:
+                pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
+                pyautogui.click()
+                return
+            logger.debug("Attempt %d/%d: role icon '%s' not found", attempt, retries, target_role)
+            time.sleep(self.retry_delay)
+
+        raise ActionError(
+            f"Не найдена иконка роли '{target_role}' на экране за {retries} попыток "
+            f"(проверьте калибровку шаблонов role_{target_role}.png / role_{target_role}_selected.png)"
         )
 
     def _h_click_point(self, step: dict, context: dict) -> None:

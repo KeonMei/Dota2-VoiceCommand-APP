@@ -92,8 +92,8 @@ Command steps (the "ranked game" example):
       retries_key: max_retries
     - type: click_template
       template: ranked_roles_tab
-    - type: click_template
-      template: "role_{role}"     # role_mid.png, role_carry.png, ...
+    - type: select_exclusive_role   # clears any other selected role first
+      retries_key: max_retries
     - type: click_template
       template: find_match_button
 ```
@@ -187,7 +187,7 @@ stream.
 
 ## 6. Calibrating Dota 2 templates for your resolution
 
-The "start a ranked game as ..." command relies on 8 templates. Calibrate
+The "start a ranked game as ..." command relies on 13 templates. Calibrate
 them once (and again whenever your screen resolution or the Dota 2 UI scale
 changes). Check your current resolution first (see section 5 above):
 
@@ -197,37 +197,61 @@ python tools/calibrate.py --check-resolution
 
 Template list:
 
-| Template name         | What to capture                                                    |
-|-------------------------|--------------------------------------------------------------------|
-| `play_button`          | The "Play" button in the Dota 2 main menu                          |
-| `ranked_roles_tab`     | The "Ranked Roles" tab/entry on the game-mode selection screen     |
-| `role_carry`           | Position 1 (Carry) icon on the role selection screen               |
-| `role_mid`             | Position 2 (Mid) icon                                               |
-| `role_offlane`         | Position 3 (Offlane) icon                                           |
-| `role_support`         | Position 4 (Support) icon                                           |
-| `role_hard_support`    | Position 5 (Hard Support) icon                                      |
-| `find_match_button`    | The button that confirms/starts the matchmaking search              |
+| Template name              | What to capture                                                    |
+|-----------------------------|--------------------------------------------------------------------|
+| `play_button`               | The "Play" button in the Dota 2 main menu                          |
+| `ranked_roles_tab`          | The "Ranked Roles" tab/entry on the game-mode selection screen     |
+| `role_carry`                | Position 1 (Carry) icon, **unselected** state                      |
+| `role_carry_selected`       | Position 1 (Carry) icon, **selected/highlighted** state            |
+| `role_mid`                  | Position 2 (Mid) icon, unselected                                  |
+| `role_mid_selected`         | Position 2 (Mid) icon, selected                                    |
+| `role_offlane`              | Position 3 (Offlane) icon, unselected                              |
+| `role_offlane_selected`     | Position 3 (Offlane) icon, selected                                |
+| `role_support`              | Position 4 (Support) icon, unselected                              |
+| `role_support_selected`     | Position 4 (Support) icon, selected                                |
+| `role_hard_support`         | Position 5 (Hard Support) icon, unselected                         |
+| `role_hard_support_selected`| Position 5 (Hard Support) icon, selected                           |
+| `find_match_button`         | The button that confirms/starts the matchmaking search             |
+
+**Why two states per role:** Dota's role icons are toggles, not an exclusive
+choice — clicking one doesn't clear whatever was already selected from a
+previous game. To fix that, `select_exclusive_role` (the step behind this
+command, see `config/commands.yaml`) checks every role's `_selected`
+template first; whichever roles show as selected but weren't the one you
+asked for get clicked off, and only then is your requested role clicked on
+(skipped if it's already selected). This needs a way to tell "selected" from
+"not selected" apart on screen — hence the two templates per role.
 
 For each template:
 
 ```bash
 python tools/calibrate.py play_button
+python tools/calibrate.py role_mid
+python tools/calibrate.py role_mid_selected
 ```
 
-1. The script gives you 5 seconds to switch to Dota 2 and open the relevant screen (e.g. the main menu).
-2. It takes a fullscreen screenshot and opens it in a window.
-3. Drag a rectangle over the element with the mouse (press and drag) — the
+1. The script gives you 5 seconds to switch to Dota 2 and open the relevant screen.
+2. For a `_selected` template, click the role icon in-game first so it shows
+   its selected/highlighted look, *then* run the calibration command for
+   that state — the countdown gives you time to do this before the
+   screenshot is taken.
+3. It takes a fullscreen screenshot and opens it in a window.
+4. Drag a rectangle over the element with the mouse (press and drag) — the
    tighter the crop around the button/icon, with as little background as
    possible, the more reliable the matching against different menu
-   backgrounds.
-4. Release the mouse button — the crop is saved to `templates/<name>.png`
+   backgrounds. Crop the unselected and selected versions of a role
+   identically (same bounds) so only the highlight differs between them.
+5. Release the mouse button — the crop is saved to `templates/<name>.png`
    and the window closes automatically.
 
-Repeat for all 8 names in the table. Then try the command:
+Repeat for all 13 names in the table. Then try the command:
 
 ```
 "Начни рейтинговую игру на мидера"
 ```
+
+...and try it again right after saying a *different* role (e.g. "...на
+кэрри") to confirm the previous role gets cleared instead of stacking.
 
 If an element isn't found (`vision.match_threshold` in `config.yaml`,
 `0.86` by default), the log (`logs/app.log`) will show which template and
@@ -235,7 +259,38 @@ what score failed to match. Options:
 - recalibrate the template more tightly (no background, exact element bounds);
 - lower `match_threshold` slightly (e.g. to `0.8`);
 - as a last resort, set `fallback_point: [x, y]` on that step in `commands.yaml`
-  to use fixed coordinates.
+  to use fixed coordinates (only supported by the plain `click_template` step,
+  not `select_exclusive_role`).
+
+## 7. Choosing a nicer TTS voice
+
+By default the assistant speaks through whatever Russian SAPI5 voice Windows
+has installed — usually "Microsoft Irina", which most people find harsh.
+See what's actually installed on your machine:
+
+```bash
+python tools/list_voices.py
+```
+
+Then set it in `config/config.yaml`:
+
+```yaml
+feedback:
+  tts_volume: 0.85     # 0.0-1.0, lowering this alone softens Irina noticeably
+  tts_voice: "Zira"    # case-insensitive substring of a name from list_voices.py
+```
+
+`tts_voice: null` (the default) uses whatever voice Windows treats as
+default. If the substring doesn't match any installed voice, a warning is
+logged and the default voice is used instead — it never crashes the app.
+
+If nothing installed sounds good, Windows 11 offers extra natural-sounding
+voices under **Settings → Time & language → Speech → Manage voices → Add
+voices**; install a Russian one there yourself (this repo won't touch system
+settings for you), then rerun `list_voices.py` — if it doesn't show up, that
+particular voice is likely a newer "OneCore" voice that classic SAPI5 apps
+like this one can't see without extra manual Windows configuration, in which
+case sticking with the tuned-down default voice is the simpler path for now.
 
 ## Error handling
 

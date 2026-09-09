@@ -13,6 +13,14 @@
 #   click_point        - click fixed coordinates (fallback).
 #   key_press          - press a key/combo (pyautogui hotkey).
 #   notify             - speak/log a message to the user.
+#   select_exclusive_role - Dota's role icons are toggles, not an exclusive
+#                        choice: clicking one doesn't clear the others. This
+#                        step reads the "role" param from context, clicks off
+#                        every role_<id>_selected.png match that isn't the
+#                        target role, then clicks role_<target>.png if it
+#                        isn't already selected. Needs both role_<id>.png and
+#                        role_<id>_selected.png templates for every role (see
+#                        README, calibration section).
 #
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
@@ -94,8 +102,7 @@ commands:
       - type: sleep
         seconds_key: between_ui_clicks
 
-      - type: click_template
-        template: "role_{role}"
+      - type: select_exclusive_role
         retries_key: max_retries
 
       - type: sleep

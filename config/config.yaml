@@ -66,6 +66,13 @@ vision:
 feedback:
   tts_enabled: true
   tts_rate: 175
+  # Playback volume, 0.0-1.0. The default Windows SAPI5 voice can sound harsh
+  # at full volume - lowering this often helps on its own.
+  tts_volume: 0.85
+  # Case-insensitive substring matched against installed voice names/ids
+  # (see: python tools/list_voices.py). null = use the system default voice
+  # (usually a robotic-sounding one like "Microsoft Irina").
+  tts_voice: null
   beep_on_command_recognized: true
   log_file: "logs/app.log"
   log_level: "INFO"
