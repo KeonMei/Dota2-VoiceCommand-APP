@@ -73,7 +73,7 @@ feedback:
   # (see: python tools/list_voices.py). null = use the system default voice
   # (usually a robotic-sounding one like "Microsoft Irina").
   tts_voice: null
-  beep_on_command_recognized: true
+  beep_on_command_recognized: false
   log_file: "logs/app.log"
   log_level: "INFO"
 
