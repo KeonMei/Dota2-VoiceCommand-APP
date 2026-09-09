@@ -1,6 +1,6 @@
 *English | [Русский](README.ru.md)*
 
-# Dota2 Voice Command Assistant
+# Dota2 Voice Command Assistant DRAFT
 
 A Windows voice assistant that reacts to spoken Russian commands to:
 - launch Steam, Dota 2, Chrome (opening Yandex Music) and Discord ("Basic minimum");
