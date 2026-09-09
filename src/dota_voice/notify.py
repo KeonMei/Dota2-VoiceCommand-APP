@@ -24,7 +24,7 @@ class Notifier:
     def __init__(self, config: Config):
         self._enabled = bool(config.get("feedback", "tts_enabled", default=True))
         self._rate = int(config.get("feedback", "tts_rate", default=175))
-        self._volume = float(config.get("feedback", "tts_volume", default=1.0))
+        self._volume = float(config.get("feedback", "tts_volume", default=0.55))
         self._voice_substr = config.get("feedback", "tts_voice", default=None)
         self._beep_enabled = bool(config.get("feedback", "beep_on_command_recognized", default=True))
         self._lock = threading.Lock()
@@ -72,9 +72,6 @@ class Notifier:
         if not self._beep_enabled:
             return
         try:
-            if ok:
-                winsound.Beep(880, 120)
-            else:
-                winsound.Beep(300, 250)
+            winsound.MessageBeep(winsound.MB_OK if ok else winsound.MB_ICONHAND)
         except RuntimeError:
             pass
