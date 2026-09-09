@@ -1,0 +1,109 @@
+# =============================================================================
+# "Command -> steps" definitions. To add a new voice command, just add a new
+# entry to this list - the core (src/dota_voice/actions.py) doesn't need to
+# change as long as existing step types are reused.
+#
+# Available step types (type):
+#   launch_process     - launch an exe if it isn't running yet; can wait for its window.
+#   launch_uri         - open steam://... or any other URI via os.startfile.
+#   wait_window        - wait for a window whose title contains a substring.
+#   sleep              - pause for a number of seconds.
+#   open_url_in_chrome - open a URL in a new Chrome tab.
+#   click_template     - find a template on screen (OpenCV) and click its center.
+#   click_point        - click fixed coordinates (fallback).
+#   key_press          - press a key/combo (pyautogui hotkey).
+#   notify             - speak/log a message to the user.
+#
+# Step fields can use the {role} placeholder - it is substituted from the
+# parameter extracted by the command matcher (see role_param).
+# =============================================================================
+
+commands:
+  - id: basic_minimum
+    description: "Launch Steam, Dota 2, Chrome with Yandex Music, and Discord"
+    phrases:
+      - "базовый минимум"
+      - "базовый набор"
+      - "старт базовый минимум"
+    match_threshold: 82
+    steps:
+      - type: notify
+        text: "Выполняю: базовый минимум"
+
+      - type: launch_process
+        app: steam
+        wait_window: true
+        timeout_key: steam_ready_sec
+
+      - type: sleep
+        seconds_key: after_steam_launch
+
+      - type: launch_uri
+        uri: "steam://rungameid/{dota_app_id}"
+        wait_window_title_key: dota2   # wait for the Dota 2 window
+        timeout_key: dota_ready_sec
+
+      - type: sleep
+        seconds_key: after_dota_launch
+
+      - type: launch_process
+        app: chrome
+        wait_window: false
+        timeout_key: process_launch_sec
+
+      - type: sleep
+        seconds_key: after_chrome_launch
+
+      - type: open_url_in_chrome
+        url: "https://music.yandex.ru"
+
+      - type: launch_process
+        app: discord
+        wait_window: false
+        optional: true
+        timeout_key: process_launch_sec
+
+      - type: notify
+        text: "Базовый минимум выполнен"
+
+  - id: ranked_role
+    description: "Start a Ranked Roles match for the given position"
+    phrases:
+      - "начни рейтинговую игру на {role}"
+      - "начать рейтинговую игру на {role}"
+      - "запусти рейтинг на {role}"
+      - "рейтинговый матч на {role}"
+      - "поиск игры на {role}"
+    role_param: role
+    match_threshold: 75
+    steps:
+      - type: notify
+        text: "Выполняю: рейтинговая игра, роль - {role_label}"
+
+      - type: click_template
+        template: play_button
+        retries_key: max_retries
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: ranked_roles_tab
+        retries_key: max_retries
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: "role_{role}"
+        retries_key: max_retries
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: find_match_button
+        retries_key: max_retries
+
+      - type: notify
+        text: "Поиск игры запущен, роль - {role_label}"

@@ -1,0 +1,36 @@
+# Версии заданы как нижняя граница (>=), а не жёсткий пин (==): для новых
+# версий Python (3.13+/3.14+) у старых пинов часто ещё нет готовых wheel-файлов,
+# и pip пытается собирать пакет из исходников (нужен C/C++ компилятор, которого
+# на Windows обычно нет) - см. README, раздел "Установка", про ошибку
+# "Failed to build ... when getting requirements to build wheel".
+
+# --- Speech recognition (offline) ---
+vosk>=0.3.45
+sounddevice>=0.4.7
+
+# --- Fuzzy command matching ---
+rapidfuzz>=3.9.7
+
+# --- Config ---
+PyYAML>=6.0.2
+
+# --- Screen capture & computer vision (Dota 2 Panorama UI recognition) ---
+mss>=9.0.1
+opencv-python>=4.10.0.84
+numpy>=1.26.4
+Pillow>=10.4.0
+
+# --- Input automation ---
+pyautogui>=0.9.54
+pynput>=1.7.7
+
+# --- Process / window management (Windows) ---
+psutil>=6.0.0
+pywin32>=306
+
+# --- Feedback: offline TTS ---
+pyttsx3>=2.98
+
+# --- Tray icon & global hotkey ---
+pystray>=0.19.5
+keyboard>=0.13.5

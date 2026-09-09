@@ -1,0 +1,91 @@
+# =============================================================================
+# Main application config. Nothing is hardcoded in the code - all paths,
+# timings and recognition parameters live here.
+# =============================================================================
+
+speech:
+  # Path to the unpacked offline Vosk model (see README for installation/calibration).
+  # Download the model: https://alphacephei.com/vosk/models (vosk-model-small-ru-0.22
+  # for speed, vosk-model-ru-0.42 for accuracy).
+  model_path: "models/vosk-model-small-ru-0.22"
+  sample_rate: 16000
+  # Input audio device index. null = system default device.
+  input_device: null
+  # Listen without an activation keyword - every phrase is checked against the command list.
+  wake_word_required: false
+
+hotkeys:
+  # Global hotkey to toggle microphone listening on/off (via the `keyboard` library).
+  toggle_listening: "ctrl+alt+l"
+
+apps:
+  steam:
+    path: "C:/Program Files (x86)/Steam/Steam.exe"
+    process_name: "steam.exe"
+    window_title_substr: "Steam"
+    launch_args: []
+  chrome:
+    path: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+    process_name: "chrome.exe"
+    window_title_substr: "Chrome"
+  discord:
+    # %LOCALAPPDATA% is expanded automatically when the config is loaded.
+    path: "%LOCALAPPDATA%/Discord/Update.exe"
+    launch_args: ["--processStart", "Discord.exe"]
+    process_name: "Discord.exe"
+    window_title_substr: "Discord"
+
+dota2:
+  app_id: 570
+  process_name: "dota2.exe"
+  window_title_substr: "Dota 2"
+
+timeouts:
+  steam_ready_sec: 60          # wait for the Steam client to fully load
+  dota_ready_sec: 90           # wait for the Dota 2 window to appear after launch
+  process_launch_sec: 15       # wait for the process to appear after launching the exe
+  generic_step_sec: 10
+
+delays:
+  after_steam_launch: 3
+  after_dota_launch: 5
+  after_chrome_launch: 2
+  between_ui_clicks: 0.6
+
+vision:
+  # Folder with reference screenshots of UI elements (see tools/calibrate.py).
+  templates_dir: "templates"
+  # Template matching score threshold (0..1). Higher = stricter.
+  match_threshold: 0.86
+  # How many times to retry finding a template on screen before giving up.
+  max_retries: 5
+  retry_delay_sec: 1.0
+  # Resolution the current templates were calibrated for (for reference/warnings).
+  calibrated_resolution: [1920, 1080]
+
+feedback:
+  tts_enabled: true
+  tts_rate: 175
+  beep_on_command_recognized: true
+  log_file: "logs/app.log"
+  log_level: "INFO"
+
+# Roles and their voice synonyms - used by the command matcher.
+# The key is the canonical role id, substituted into template filenames
+# (templates/role_<id>.png) and into the executor's commands.
+roles:
+  carry:
+    label: "Керри"
+    synonyms: ["керри", "кэрри", "карри", "carry", "первая позиция", "1 позиция", "оффкор"]
+  mid:
+    label: "Мидер"
+    synonyms: ["мидер", "мид", "миддер", "middle", "вторая позиция", "2 позиция"]
+  offlane:
+    label: "Оффлейнер"
+    synonyms: ["хард", "оффлейнер", "офлейн", "оффлейн", "хардлейн", "третья позиция", "3 позиция"]
+  support:
+    label: "Поддержка"
+    synonyms: ["поддержка", "саппорт", "софт", "софт саппорт", "четвертая позиция", "4 позиция"]
+  hard_support:
+    label: "Полная поддержка"
+    synonyms: ["полная поддержка", "хард саппорт", "хардсаппорт", "пятая позиция", "5 позиция"]
