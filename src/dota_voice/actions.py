@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -31,6 +32,7 @@ class ActionExecutor:
         self.match_threshold = float(config.get("vision", "match_threshold", default=0.86))
         self.default_retries = int(config.get("vision", "max_retries", default=5))
         self.retry_delay = float(config.get("vision", "retry_delay_sec", default=1.0))
+        self._stop_event = threading.Event()
 
         self._handlers: dict[str, Callable[[dict, dict], None]] = {
             "notify": self._h_notify,
@@ -45,8 +47,24 @@ class ActionExecutor:
             "select_exclusive_role": self._h_select_exclusive_role,
         }
 
+    def request_stop(self) -> None:
+        self._stop_event.set()
+
+    def _interruptible_sleep(self, seconds: float) -> None:
+        remaining = seconds
+        step_size = 0.1
+        while remaining > 0 and not self._stop_event.is_set():
+            chunk = min(step_size, remaining)
+            time.sleep(chunk)
+            remaining -= chunk
+
     def run_steps(self, steps: list[dict], context: dict[str, Any]) -> bool:
+        self._stop_event.clear()
         for step in steps:
+            if self._stop_event.is_set():
+                logger.info("Step sequence stopped by voice command.")
+                return False
+
             step_type = step.get("type")
             handler = self._handlers.get(step_type)
             if handler is None:
@@ -63,6 +81,10 @@ class ActionExecutor:
                     continue
                 self.notifier.beep(ok=False)
                 self.notifier.speak(f"Не удалось выполнить шаг: {exc}")
+                return False
+
+            if self._stop_event.is_set():
+                logger.info("Step sequence stopped by voice command.")
                 return False
         return True
 
@@ -111,12 +133,20 @@ class ActionExecutor:
         except process_utils.ProcessError as exc:
             raise ActionError(str(exc)) from exc
 
-        if not process_utils.wait_for_process(process_name, timeout=self._timeout(step, "process_launch_sec")):
+        if not process_utils.wait_for_process(
+            process_name, timeout=self._timeout(step, "process_launch_sec"), stop_event=self._stop_event
+        ):
+            if self._stop_event.is_set():
+                return
             raise ActionError(f"Процесс {process_name} не запустился за отведённое время")
 
         if step.get("wait_window", False):
             title = app_cfg.get("window_title_substr", "")
-            if title and not process_utils.wait_for_window(title, timeout=self._timeout(step)):
+            if title and not process_utils.wait_for_window(
+                title, timeout=self._timeout(step), stop_event=self._stop_event
+            ):
+                if self._stop_event.is_set():
+                    return
                 raise ActionError(f"Окно приложения '{app_key}' не появилось за отведённое время")
 
     def _h_launch_uri(self, step: dict, context: dict) -> None:
@@ -127,16 +157,22 @@ class ActionExecutor:
         wait_title_key = step.get("wait_window_title_key")
         if wait_title_key:
             title_cfg = self.config.get(wait_title_key, "window_title_substr", default=None)
-            if title_cfg and not process_utils.wait_for_window(title_cfg, timeout=self._timeout(step)):
+            if title_cfg and not process_utils.wait_for_window(
+                title_cfg, timeout=self._timeout(step), stop_event=self._stop_event
+            ):
+                if self._stop_event.is_set():
+                    return
                 raise ActionError(f"Окно '{title_cfg}' не появилось за отведённое время")
 
     def _h_wait_window(self, step: dict, context: dict) -> None:
         title = self._fmt(step["title"], context)
-        if not process_utils.wait_for_window(title, timeout=self._timeout(step)):
+        if not process_utils.wait_for_window(title, timeout=self._timeout(step), stop_event=self._stop_event):
+            if self._stop_event.is_set():
+                return
             raise ActionError(f"Окно, содержащее '{title}', не появилось")
 
     def _h_sleep(self, step: dict, context: dict) -> None:
-        time.sleep(self._seconds(step))
+        self._interruptible_sleep(self._seconds(step))
 
     def _h_open_url_in_chrome(self, step: dict, context: dict) -> None:
         url = self._fmt(step["url"], context)
@@ -154,13 +190,18 @@ class ActionExecutor:
 
         retries = self._retries(step)
         for attempt in range(1, retries + 1):
+            if self._stop_event.is_set():
+                return
             match = vision.find_template(template_path, threshold=self.match_threshold)
             if match is not None:
                 pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
                 pyautogui.click()
                 return
             logger.debug("Attempt %d/%d: template '%s' not found", attempt, retries, template_name)
-            time.sleep(self.retry_delay)
+            self._interruptible_sleep(self.retry_delay)
+
+        if self._stop_event.is_set():
+            return
 
         fallback = step.get("fallback_point")
         if fallback:
@@ -183,6 +224,8 @@ class ActionExecutor:
         click_delay = float(self.config.get("delays", "between_ui_clicks", default=0.6))
 
         for role_id in roles:
+            if self._stop_event.is_set():
+                return
             if role_id == target_role:
                 continue
             selected_path = self.templates_dir / f"role_{role_id}_selected.png"
@@ -191,7 +234,10 @@ class ActionExecutor:
                 logger.debug("Role '%s' is currently selected, clicking it off", role_id)
                 pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
                 pyautogui.click()
-                time.sleep(click_delay)
+                self._interruptible_sleep(click_delay)
+
+        if self._stop_event.is_set():
+            return
 
         target_selected_path = self.templates_dir / f"role_{target_role}_selected.png"
         if vision.find_template(target_selected_path, threshold=self.match_threshold) is not None:
@@ -200,13 +246,18 @@ class ActionExecutor:
         target_base_path = self.templates_dir / f"role_{target_role}.png"
         retries = self._retries(step)
         for attempt in range(1, retries + 1):
+            if self._stop_event.is_set():
+                return
             match = vision.find_template(target_base_path, threshold=self.match_threshold)
             if match is not None:
                 pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
                 pyautogui.click()
                 return
             logger.debug("Attempt %d/%d: role icon '%s' not found", attempt, retries, target_role)
-            time.sleep(self.retry_delay)
+            self._interruptible_sleep(self.retry_delay)
+
+        if self._stop_event.is_set():
+            return
 
         raise ActionError(
             f"Не найдена иконка роли '{target_role}' на экране за {retries} попыток "

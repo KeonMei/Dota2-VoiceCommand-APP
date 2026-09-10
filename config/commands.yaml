@@ -24,9 +24,29 @@
 #
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
+#
+# A command marked with `control: stop` is handled specially by
+# src/dota_voice/app.py: it bypasses the busy-lock (so it fires even while
+# another command's steps are still running) and, instead of running
+# `steps`, asks ActionExecutor to interrupt whatever is currently in
+# progress (mid-retry clicks, mid-wait for a window, etc.) - see
+# ActionExecutor.request_stop() in actions.py.
 # =============================================================================
 
 commands:
+  - id: stop
+    description: "Interrupt whatever command is currently running"
+    phrases:
+      - "стоп"
+      - "стой"
+      - "остановись"
+      - "останови"
+      - "прекрати"
+      - "хватит"
+      - "отмена"
+    match_threshold: 85
+    control: stop
+
   - id: basic_minimum
     description: "Launch Steam, Dota 2, Chrome with Yandex Music, and Discord"
     phrases:

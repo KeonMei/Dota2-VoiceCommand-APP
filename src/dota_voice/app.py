@@ -60,6 +60,10 @@ class Application:
 
         command, params = matched
 
+        if command.get("control") == "stop":
+            self._handle_stop()
+            return
+
         if not self._busy_lock.acquire(blocking=False):
             logger.warning("Another command is already running, ignoring new command '%s'.", command.get("id"))
             self.notifier.speak("Дождитесь завершения текущей команды")
@@ -72,6 +76,14 @@ class Application:
                 self._busy_lock.release()
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _handle_stop(self) -> None:
+        self.executor.request_stop()
+        if self._busy_lock.locked():
+            logger.info("Stop command received, interrupting the running sequence.")
+            self.notifier.speak("Останавливаю")
+        else:
+            logger.debug("Stop command received, but nothing was running.")
 
     def run(self) -> None:
         logger.info("Starting Dota2 Voice Command Assistant")

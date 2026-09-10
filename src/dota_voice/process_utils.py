@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -42,18 +43,22 @@ def find_window_by_title_substr(substr: str) -> int | None:
     return found[0] if found else None
 
 
-def wait_for_process(process_name: str, timeout: float) -> bool:
+def wait_for_process(process_name: str, timeout: float, stop_event: threading.Event | None = None) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if stop_event is not None and stop_event.is_set():
+            return False
         if is_process_running(process_name):
             return True
         time.sleep(0.5)
     return False
 
 
-def wait_for_window(title_substr: str, timeout: float) -> bool:
+def wait_for_window(title_substr: str, timeout: float, stop_event: threading.Event | None = None) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if stop_event is not None and stop_event.is_set():
+            return False
         if find_window_by_title_substr(title_substr) is not None:
             return True
         time.sleep(0.5)
