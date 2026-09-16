@@ -108,16 +108,23 @@ commands:
       - type: notify
         text: "Выполняю: рейтинговая игра, роль - {role_label}"
 
+      # play_button/ranked_roles_tab are marked optional with a short retry
+      # budget: if the user is already past that screen (clicked Play or
+      # opened Ranked Roles manually, or this is a repeat role command),
+      # the template simply won't be on screen - skip it and move on instead
+      # of burning the full retry budget and aborting the whole sequence.
       - type: click_template
         template: play_button
-        retries_key: max_retries
+        retries: 2
+        optional: true
 
       - type: sleep
         seconds_key: between_ui_clicks
 
       - type: click_template
         template: ranked_roles_tab
-        retries_key: max_retries
+        retries: 2
+        optional: true
 
       - type: sleep
         seconds_key: between_ui_clicks
