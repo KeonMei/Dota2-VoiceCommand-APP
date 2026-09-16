@@ -63,6 +63,18 @@ vision:
   # Resolution the current templates were calibrated for (for reference/warnings).
   calibrated_resolution: [1920, 1080]
 
+automation:
+  # How long the mouse takes to glide to a UI element before clicking, in
+  # seconds. Purely cosmetic - lower feels snappier/more robotic, higher
+  # feels smoother and more human (but slows down the whole sequence a bit).
+  move_duration: 0.45
+  # Easing curve applied over that duration:
+  #   linear       - constant speed the whole way (the old, robotic default)
+  #   ease_in_out  - starts slow, speeds up, eases into the target (natural)
+  #   ease_out     - moves quickly then eases into the target
+  #   ease_in      - starts slow then accelerates into the target
+  move_tween: "ease_in_out"
+
 feedback:
   tts_enabled: true
   tts_rate: 175

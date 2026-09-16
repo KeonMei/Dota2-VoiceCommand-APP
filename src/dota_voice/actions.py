@@ -16,6 +16,20 @@ from .notify import Notifier
 logger = logging.getLogger("dota_voice.actions")
 
 pyautogui.FAILSAFE = True
+# pyautogui only updates the cursor position every MINIMUM_SLEEP seconds during
+# a tweened move (default 0.05s = ~7 steps over 0.35s, which looks like a few
+# jumps rather than a glide regardless of duration/easing). Lowering it lets a
+# shorter move_duration still look smooth. PAUSE (default 0.1s) adds a fixed
+# delay after every single pyautogui call, independent of the glide itself.
+pyautogui.MINIMUM_SLEEP = 0.01
+pyautogui.PAUSE = 0.05
+
+_TWEENS = {
+    "linear": pyautogui.linear,
+    "ease_in_out": pyautogui.easeInOutQuad,
+    "ease_out": pyautogui.easeOutQuad,
+    "ease_in": pyautogui.easeInQuad,
+}
 
 
 class ActionError(RuntimeError):
@@ -32,6 +46,12 @@ class ActionExecutor:
         self.match_threshold = float(config.get("vision", "match_threshold", default=0.86))
         self.default_retries = int(config.get("vision", "max_retries", default=5))
         self.retry_delay = float(config.get("vision", "retry_delay_sec", default=1.0))
+        self.move_duration = float(config.get("automation", "move_duration", default=0.35))
+        tween_name = str(config.get("automation", "move_tween", default="ease_in_out"))
+        self.move_tween = _TWEENS.get(tween_name)
+        if self.move_tween is None:
+            logger.warning("Unknown automation.move_tween '%s', falling back to ease_in_out", tween_name)
+            self.move_tween = pyautogui.easeInOutQuad
         self._stop_event = threading.Event()
 
         self._handlers: dict[str, Callable[[dict, dict], None]] = {
@@ -111,6 +131,10 @@ class ActionExecutor:
         if "retries_key" in step:
             return int(self.config.get("vision", step["retries_key"], default=self.default_retries))
         return int(step.get("retries", self.default_retries))
+
+    def _move_and_click(self, x: int, y: int) -> None:
+        pyautogui.moveTo(x, y, duration=self.move_duration, tween=self.move_tween)
+        pyautogui.click()
 
     def _h_notify(self, step: dict, context: dict) -> None:
         text = self._fmt(step.get("text", ""), context)
@@ -194,8 +218,7 @@ class ActionExecutor:
                 return
             match = vision.find_template(template_path, threshold=self.match_threshold)
             if match is not None:
-                pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
-                pyautogui.click()
+                self._move_and_click(match.center_x, match.center_y)
                 return
             logger.debug("Attempt %d/%d: template '%s' not found", attempt, retries, template_name)
             self._interruptible_sleep(self.retry_delay)
@@ -206,8 +229,7 @@ class ActionExecutor:
         fallback = step.get("fallback_point")
         if fallback:
             logger.warning("Template '%s' not found, clicking the fallback coordinates %s", template_name, fallback)
-            pyautogui.moveTo(fallback[0], fallback[1], duration=0.15)
-            pyautogui.click()
+            self._move_and_click(fallback[0], fallback[1])
             return
 
         raise ActionError(
@@ -232,8 +254,7 @@ class ActionExecutor:
             match = vision.find_template(selected_path, threshold=self.match_threshold)
             if match is not None:
                 logger.debug("Role '%s' is currently selected, clicking it off", role_id)
-                pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
-                pyautogui.click()
+                self._move_and_click(match.center_x, match.center_y)
                 self._interruptible_sleep(click_delay)
 
         if self._stop_event.is_set():
@@ -250,8 +271,7 @@ class ActionExecutor:
                 return
             match = vision.find_template(target_base_path, threshold=self.match_threshold)
             if match is not None:
-                pyautogui.moveTo(match.center_x, match.center_y, duration=0.15)
-                pyautogui.click()
+                self._move_and_click(match.center_x, match.center_y)
                 return
             logger.debug("Attempt %d/%d: role icon '%s' not found", attempt, retries, target_role)
             self._interruptible_sleep(self.retry_delay)
@@ -266,8 +286,7 @@ class ActionExecutor:
 
     def _h_click_point(self, step: dict, context: dict) -> None:
         x, y = step["point"]
-        pyautogui.moveTo(x, y, duration=0.15)
-        pyautogui.click()
+        self._move_and_click(x, y)
 
     def _h_key_press(self, step: dict, context: dict) -> None:
         keys = step["keys"]
