@@ -10,6 +10,7 @@ Usage:
     python tools/calibrate.py role_support
     python tools/calibrate.py role_hard_support
     python tools/calibrate.py find_match_button
+    python tools/calibrate.py --region <name>
 
 Checking the resolution:
     Before calibrating, it's worth confirming which screen resolution the
@@ -21,7 +22,7 @@ Checking the resolution:
     automatically every time the main application starts (main.py) - if the
     screen doesn't match the calibration, a warning is logged/printed.
 
-Steps:
+Steps (template):
     1. Open Dota 2 and get to the screen where the target element is visible
        (e.g. the main menu with the "Play" button).
     2. Run the script with the template name as an argument.
@@ -33,6 +34,16 @@ Steps:
        possible, the more reliable the matching.
     5. Release the mouse button - the crop is saved to templates/<name>.png
        and the window closes automatically.
+
+Steps (--region, optional speed optimization):
+    Same drag-a-rectangle flow, but instead of saving a cropped image it
+    saves the rectangle's coordinates to config.yaml as
+    vision.region_<name>. Any click_template/select_exclusive_role step in
+    commands.yaml with a matching `region_key: <name>` will then search only
+    inside that rectangle instead of the whole screen - template matching
+    over a small region is several times faster than over the full screen.
+    This is entirely optional: without a matching region_key/region_<name>,
+    steps search the full screen exactly as before.
 
 Templates are tied to the current screen resolution and Dota 2 UI scale.
 Recalibrate whenever either of those changes.
@@ -103,17 +114,36 @@ def check_resolution(auto_update: bool) -> tuple[int, int]:
     return current
 
 
+def _write_region_to_config(name: str, box: tuple[int, int, int, int]) -> None:
+    left, top, width, height = box
+    key = f"region_{name}"
+    text = CONFIG_PATH.read_text(encoding="utf-8")
+    new_text, count = re.subn(
+        rf"{key}:\s*\[\s*-?\d+\s*,\s*-?\d+\s*,\s*\d+\s*,\s*\d+\s*\]",
+        f"{key}: [{left}, {top}, {width}, {height}]",
+        text,
+    )
+    if count == 0:
+        marker = "calibrated_resolution:"
+        idx = new_text.index(marker)
+        line_end = new_text.index("\n", idx)
+        insertion = f"\n  {key}: [{left}, {top}, {width}, {height}]"
+        new_text = new_text[: line_end] + insertion + new_text[line_end:]
+    CONFIG_PATH.write_text(new_text, encoding="utf-8")
+    print(f"config.yaml updated: vision.{key}: [{left}, {top}, {width}, {height}]")
+
+
 class RegionSelector:
-    def __init__(self, screenshot: Image.Image, output_path: Path):
+    def __init__(self, screenshot: Image.Image, on_selected):
         self.screenshot = screenshot
-        self.output_path = output_path
+        self.on_selected = on_selected
         self.start_x = self.start_y = 0
         self.rect_id = None
 
         self.root = tk.Tk()
         self.root.attributes("-fullscreen", True)
         self.root.attributes("-topmost", True)
-        self.root.title("Drag a rectangle over the template (left mouse button, Esc to cancel)")
+        self.root.title("Drag a rectangle (left mouse button, Esc to cancel)")
 
         self.tk_image = ImageTk.PhotoImage(screenshot)
         self.canvas = tk.Canvas(self.root, cursor="cross", width=screenshot.width, height=screenshot.height)
@@ -144,18 +174,35 @@ class RegionSelector:
             print("The selected area is too small, try again (press and drag the left mouse button).")
             return
 
-        cropped = self.screenshot.crop((x0, y0, x1, y1))
-        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-        cropped.save(self.output_path)
-        print(f"Saved: {self.output_path} ({cropped.width}x{cropped.height}px)")
+        self.on_selected((x0, y0, x1, y1))
         self.root.destroy()
 
     def run(self):
         self.root.mainloop()
 
 
+def _save_template(screenshot: Image.Image, output_path: Path, box: tuple[int, int, int, int]) -> None:
+    x0, y0, x1, y1 = box
+    cropped = screenshot.crop((x0, y0, x1, y1))
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+    cropped.save(output_path)
+    print(f"Saved: {output_path} ({cropped.width}x{cropped.height}px)")
+
+
+def _save_region(name: str, box: tuple[int, int, int, int]) -> None:
+    x0, y0, x1, y1 = box
+    _write_region_to_config(name, (x0, y0, x1 - x0, y1 - y0))
+
+
+def _run_countdown() -> None:
+    print(f"Switch to the Dota 2 window. The screenshot will be taken in {COUNTDOWN_SECONDS} seconds...")
+    for remaining in range(COUNTDOWN_SECONDS, 0, -1):
+        print(f"  {remaining}...")
+        time.sleep(1)
+
+
 def main() -> None:
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print(__doc__)
         sys.exit(1)
 
@@ -163,20 +210,31 @@ def main() -> None:
         check_resolution(auto_update=True)
         return
 
+    if sys.argv[1] == "--region":
+        if len(sys.argv) != 3:
+            print(__doc__)
+            sys.exit(1)
+        region_name = sys.argv[2]
+        check_resolution(auto_update=False)
+        print(f"Region: {region_name}")
+        _run_countdown()
+        screenshot = ImageGrab.grab()
+        print("Screenshot taken. Drag a rectangle over the area to search in.")
+        selector = RegionSelector(screenshot, on_selected=lambda box: _save_region(region_name, box))
+        selector.run()
+        return
+
     template_name = sys.argv[1]
     output_path = TEMPLATES_DIR / f"{template_name}.png"
 
     check_resolution(auto_update=False)
     print(f"Template: {template_name}")
-    print(f"Switch to the Dota 2 window. The screenshot will be taken in {COUNTDOWN_SECONDS} seconds...")
-    for remaining in range(COUNTDOWN_SECONDS, 0, -1):
-        print(f"  {remaining}...")
-        time.sleep(1)
+    _run_countdown()
 
     screenshot = ImageGrab.grab()
     print("Screenshot taken. Drag a rectangle over the element in the window that just opened.")
 
-    selector = RegionSelector(screenshot, output_path)
+    selector = RegionSelector(screenshot, on_selected=lambda box: _save_template(screenshot, output_path, box))
     selector.run()
 
 

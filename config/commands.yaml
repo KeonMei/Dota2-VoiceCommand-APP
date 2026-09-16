@@ -25,6 +25,12 @@
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
 #
+# `region_key: <name>` on a click_template/select_exclusive_role step limits
+# template matching to config.yaml's vision.region_<name> (calibrated with
+# `python tools/calibrate.py --region <name>`), which is several times
+# faster than the default full-screen search. Safe no-op if that region
+# hasn't been calibrated - falls back to searching the whole screen.
+#
 # A command marked with `control: stop` is handled specially by
 # src/dota_voice/app.py: it bypasses the busy-lock (so it fires even while
 # another command's steps are still running) and, instead of running
@@ -117,6 +123,7 @@ commands:
         template: play_button
         retries: 2
         optional: true
+        region_key: play_button
 
       - type: sleep
         seconds_key: between_ui_clicks
@@ -125,12 +132,14 @@ commands:
         template: ranked_roles_tab
         retries: 2
         optional: true
+        region_key: ranked_roles_tab
 
       - type: sleep
         seconds_key: between_ui_clicks
 
       - type: select_exclusive_role
         retries_key: max_retries
+        region_key: role_icons
 
       - type: sleep
         seconds_key: between_ui_clicks
@@ -138,6 +147,7 @@ commands:
       - type: click_template
         template: find_match_button
         retries_key: max_retries
+        region_key: find_match_button
 
       - type: notify
         text: "Поиск игры запущен, роль - {role_label}"

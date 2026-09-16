@@ -132,6 +132,13 @@ class ActionExecutor:
             return int(self.config.get("vision", step["retries_key"], default=self.default_retries))
         return int(step.get("retries", self.default_retries))
 
+    def _region_for(self, step: dict) -> tuple[int, int, int, int] | None:
+        region_key = step.get("region_key")
+        if not region_key:
+            return None
+        region = self.config.get("vision", f"region_{region_key}", default=None)
+        return tuple(region) if region else None
+
     def _move_and_click(self, x: int, y: int) -> None:
         pyautogui.moveTo(x, y, duration=self.move_duration, tween=self.move_tween)
         pyautogui.click()
@@ -211,12 +218,13 @@ class ActionExecutor:
     def _h_click_template(self, step: dict, context: dict) -> None:
         template_name = self._fmt(step["template"], context)
         template_path = self.templates_dir / f"{template_name}.png"
+        region = self._region_for(step)
 
         retries = self._retries(step)
         for attempt in range(1, retries + 1):
             if self._stop_event.is_set():
                 return
-            match = vision.find_template(template_path, threshold=self.match_threshold)
+            match = vision.find_template(template_path, threshold=self.match_threshold, region=region)
             if match is not None:
                 self._move_and_click(match.center_x, match.center_y)
                 return
@@ -244,6 +252,7 @@ class ActionExecutor:
 
         roles = self.config.get("roles", default={}) or {}
         click_delay = float(self.config.get("delays", "between_ui_clicks", default=0.6))
+        region = self._region_for(step)
 
         for role_id in roles:
             if self._stop_event.is_set():
@@ -251,7 +260,7 @@ class ActionExecutor:
             if role_id == target_role:
                 continue
             selected_path = self.templates_dir / f"role_{role_id}_selected.png"
-            match = vision.find_template(selected_path, threshold=self.match_threshold)
+            match = vision.find_template(selected_path, threshold=self.match_threshold, region=region)
             if match is not None:
                 logger.debug("Role '%s' is currently selected, clicking it off", role_id)
                 self._move_and_click(match.center_x, match.center_y)
@@ -261,7 +270,7 @@ class ActionExecutor:
             return
 
         target_selected_path = self.templates_dir / f"role_{target_role}_selected.png"
-        if vision.find_template(target_selected_path, threshold=self.match_threshold) is not None:
+        if vision.find_template(target_selected_path, threshold=self.match_threshold, region=region) is not None:
             return
 
         target_base_path = self.templates_dir / f"role_{target_role}.png"
@@ -269,7 +278,7 @@ class ActionExecutor:
         for attempt in range(1, retries + 1):
             if self._stop_event.is_set():
                 return
-            match = vision.find_template(target_base_path, threshold=self.match_threshold)
+            match = vision.find_template(target_base_path, threshold=self.match_threshold, region=region)
             if match is not None:
                 self._move_and_click(match.center_x, match.center_y)
                 return

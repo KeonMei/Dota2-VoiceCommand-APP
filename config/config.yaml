@@ -50,7 +50,7 @@ delays:
   after_steam_launch: 3
   after_dota_launch: 5
   after_chrome_launch: 2
-  between_ui_clicks: 0.6
+  between_ui_clicks: 0.3
 
 vision:
   # Folder with reference screenshots of UI elements (see tools/calibrate.py).
@@ -58,10 +58,17 @@ vision:
   # Template matching score threshold (0..1). Higher = stricter.
   match_threshold: 0.86
   # How many times to retry finding a template on screen before giving up.
-  max_retries: 5
-  retry_delay_sec: 1.0
+  max_retries: 2
+  retry_delay_sec: 0.4
   # Resolution the current templates were calibrated for (for reference/warnings).
   calibrated_resolution: [1920, 1080]
+  region_role_icons: [1540, 587, 213, 131]
+  # Optional named search regions: [left, top, width, height], written by
+  # `python tools/calibrate.py --region <name>`. A step with a matching
+  # `region_key: <name>` then searches only this rectangle instead of the
+  # full screen - much faster. None are set by default, which is a safe
+  # no-op: every step still searches the whole screen until you calibrate
+  # one (e.g. `python tools/calibrate.py --region role_icons`).
 
 automation:
   # How long the mouse takes to glide to a UI element before clicking, in
