@@ -22,6 +22,7 @@ class Application:
         setup_logging(self.config)
 
         self.notifier = Notifier(self.config)
+        self.notifier.warm_up()
         self.matcher = CommandMatcher(self.config, self.commands_config)
         self.executor = ActionExecutor(self.config, self.notifier)
         self.listener = SpeechListener(self.config, on_text=self._on_text_recognized)

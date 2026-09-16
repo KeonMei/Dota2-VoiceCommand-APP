@@ -96,10 +96,22 @@ automation:
 
 feedback:
   tts_enabled: true
+  # "piper" - offline neural voice (natural-sounding, needs a downloaded model,
+  #           see piper_model). Falls back to "sapi" if the model is missing.
+  # "sapi"  - built-in Windows voice via pyttsx3 (tts_rate / tts_voice below).
+  tts_engine: "piper"
+  # Piper voice model (.onnx, with its .onnx.json next to it). Russian voices:
+  # ru_RU-dmitri-medium, ru_RU-denis-medium, ru_RU-ruslan-medium (male),
+  # ru_RU-irina-medium (female). Download one with:
+  #   python -m piper.download_voices ru_RU-denis-medium --data-dir models/piper
+  piper_model: "models/piper/ru_RU-denis-medium.onnx"
+  # Speech tempo for Piper: 1.0 = normal, >1 slower, <1 faster.
+  piper_length_scale: 0.9
+  # Speech rate for the "sapi" engine (words per minute).
   tts_rate: 175
   # Playback volume, 0.0-1.0. The default Windows SAPI5 voice can sound harsh
   # at full volume - lowering this often helps on its own.
-  tts_volume: 0.55
+  tts_volume: 0.15
   # Case-insensitive substring matched against installed voice names/ids
   # (see: python tools/list_voices.py). null = use the system default voice
   # (usually a robotic-sounding one like "Microsoft Irina").

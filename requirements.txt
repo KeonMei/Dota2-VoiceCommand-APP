@@ -30,6 +30,7 @@ pywin32>=306
 
 # --- Feedback: offline TTS ---
 pyttsx3>=2.98
+piper-tts>=1.8.0
 
 # --- Tray icon & global hotkey ---
 pystray>=0.19.5
