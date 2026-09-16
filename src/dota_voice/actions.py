@@ -183,9 +183,6 @@ class ActionExecutor:
 
     def _dota_launch_uri(self) -> str:
         dota_app_id = self.config.get("dota2", "app_id", default=570)
-        launch_options = str(self.config.get("dota2", "launch_options", default="") or "").strip()
-        if launch_options:
-            return f"steam://run/{dota_app_id}//{launch_options}"
         return f"steam://rungameid/{dota_app_id}"
 
     def _h_launch_uri(self, step: dict, context: dict) -> None:
@@ -217,6 +214,45 @@ class ActionExecutor:
             self._interruptible_sleep(1.0)
         return False
 
+    def _skip_intro_and_wait_for_menu(self, timeout: float) -> bool:
+        """Waits for the Play button while also watching for any calibrated
+        intro-splash frame (templates/intro_splash*.png) and pressing Escape
+        the moment one is actually detected on screen - a deterministic
+        reaction to a real frame match, not a blind click on a timer. Fully
+        optional: with no intro_splash*.png templates calibrated, this is
+        identical to plain _wait_for_template_visible("play_button", ...)."""
+        intro_templates = sorted(self.templates_dir.glob("intro_splash*.png"))
+        play_button_path = self.templates_dir / "play_button.png"
+        region_play = self._region_for({"region_key": "play_button"})
+        skip_cooldown = 1.0
+        last_skip_time = 0.0
+
+        if intro_templates:
+            logger.info("Watching for %d intro splash template(s) to skip.", len(intro_templates))
+        else:
+            logger.debug("No intro_splash*.png templates calibrated - just waiting for the Play button.")
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._stop_event.is_set():
+                return False
+
+            if vision.find_template(play_button_path, threshold=self.match_threshold, region=region_play) is not None:
+                return True
+
+            now = time.time()
+            if intro_templates and (now - last_skip_time) > skip_cooldown:
+                for template_path in intro_templates:
+                    if vision.find_template(template_path, threshold=self.match_threshold) is not None:
+                        logger.info("Detected intro splash '%s', pressing Escape to skip it.", template_path.stem)
+                        pyautogui.press("escape")
+                        last_skip_time = now
+                        break
+
+            self._interruptible_sleep(0.5)
+
+        return False
+
     def _h_ensure_dota_ready(self, step: dict, context: dict) -> None:
         """Walks the Steam -> Dota 2 launch chain, checking each stage instead of
         assuming a cold start: skips Steam if it's already running, skips
@@ -225,7 +261,9 @@ class ActionExecutor:
         minimized"). On a fresh launch, actively waits for the main menu's
         Play button to actually render instead of guessing a fixed delay -
         the game window can exist for a long time before Panorama UI (and
-        the assets it needs) has finished loading."""
+        the assets it needs) has finished loading - and presses Escape to
+        skip past any calibrated intro splash it detects along the way (see
+        _skip_intro_and_wait_for_menu)."""
         dota_cfg = self.config.get("dota2", default={}) or {}
         process_name = dota_cfg.get("process_name", "dota2.exe")
         window_title = dota_cfg.get("window_title_substr", "Dota 2")
@@ -279,8 +317,7 @@ class ActionExecutor:
         if self._stop_event.is_set():
             return
 
-        region = self._region_for({"region_key": "play_button"})
-        if not self._wait_for_template_visible("play_button", menu_timeout, region=region):
+        if not self._skip_intro_and_wait_for_menu(menu_timeout):
             if self._stop_event.is_set():
                 return
             raise ActionError(

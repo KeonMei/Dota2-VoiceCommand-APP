@@ -39,11 +39,6 @@ dota2:
   app_id: 570
   process_name: "dota2.exe"
   window_title_substr: "Dota 2"
-  # Extra launch options passed to the game via Steam (steam://run/<id>//<options>
-  # instead of steam://rungameid/<id>). -novid skips the Valve/Dota 2 intro
-  # splash videos, which noticeably speeds up reaching the main menu. Leave
-  # empty ("") to launch with no extra options, same as before.
-  launch_options: "-novid"
 
 timeouts:
   steam_ready_sec: 60          # wait for the Steam client to fully load
@@ -63,6 +58,14 @@ delays:
 
 vision:
   # Folder with reference screenshots of UI elements (see tools/calibrate.py).
+  # Optional: templates/intro_splash*.png (any number, e.g. intro_splash_1.png,
+  # intro_splash_2.png) - if present, ensure_dota_ready watches for them on a
+  # fresh launch and presses Escape the moment any one of them is actually
+  # detected, instead of guessing. Absent by default; nothing here just waits
+  # for the Play button as before. The splash is usually animated, so hand-
+  # timing one screenshot rarely lands on the right frame - calibrate a whole
+  # burst of frames instead: `python tools/calibrate.py --burst intro_splash`
+  # (see that command's --help for how it works).
   templates_dir: "templates"
   # Template matching score threshold (0..1). Higher = stricter.
   match_threshold: 0.86

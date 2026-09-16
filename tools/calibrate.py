@@ -11,6 +11,7 @@ Usage:
     python tools/calibrate.py role_hard_support
     python tools/calibrate.py find_match_button
     python tools/calibrate.py --region <name>
+    python tools/calibrate.py --burst <name> [duration_sec] [interval_sec]
 
 Checking the resolution:
     Before calibrating, it's worth confirming which screen resolution the
@@ -45,11 +46,37 @@ Steps (--region, optional speed optimization):
     This is entirely optional: without a matching region_key/region_<name>,
     steps search the full screen exactly as before.
 
+Steps (--burst, for a moving/animated screen like an intro splash video):
+    Catching one exact still frame of a playing animation by hand is close
+    to impossible - by the time you drag a rectangle, the picture has moved
+    on. --burst instead captures a whole sequence of screenshots
+    automatically (duration_sec long, one every interval_sec, defaults 6s /
+    0.25s = ~24 frames) while the animation plays, then lets you drag ONE
+    rectangle over a single preview frame - that same crop is applied to
+    every captured frame and saved as templates/<name>_1.png,
+    <name>_2.png, etc. At runtime, a match against ANY of those frames
+    counts as a hit, so the exact instant no longer matters as much.
+    1. Run e.g. `python tools/calibrate.py --burst intro_splash`.
+    2. During the 5s countdown, get Dota 2 to the point right before the
+       splash starts (e.g. about to click Play, or about to relaunch it).
+    3. Trigger the splash yourself right as capturing starts, so it plays
+       out during the capture window.
+    4. A preview of the middle captured frame opens - drag a rectangle over
+       whatever element you want to detect (a logo, a "press any key"
+       prompt, etc.) - it doesn't need to be visible in this exact preview
+       frame, just at roughly this screen position across the sequence.
+    5. All frames are cropped to that box and saved, and the templates
+       folder opens automatically - delete any <name>_N.png you don't want
+       to keep (blurry, near-duplicate, or not showing the element at all).
+       Fewer, well-chosen frames match just as well and check faster at
+       runtime. Re-running the same name replaces the previous batch.
+
 Templates are tied to the current screen resolution and Dota 2 UI scale.
 Recalibrate whenever either of those changes.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -66,6 +93,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from dota_voice.config import Config  # noqa: E402
 
 COUNTDOWN_SECONDS = 5
+DEFAULT_BURST_DURATION_SEC = 6.0
+DEFAULT_BURST_INTERVAL_SEC = 0.25
 
 
 def _get_configured_resolution() -> tuple[int, int]:
@@ -201,8 +230,52 @@ def _run_countdown() -> None:
         time.sleep(1)
 
 
+def _capture_burst(duration: float, interval: float) -> list[Image.Image]:
+    frames: list[Image.Image] = []
+    start = time.time()
+    next_report = 1.0
+    while time.time() - start < duration:
+        frames.append(ImageGrab.grab())
+        elapsed = time.time() - start
+        if elapsed >= next_report:
+            print(f"  ...{elapsed:.0f}s / {duration:.0f}s ({len(frames)} frames captured)")
+            next_report += 1.0
+        time.sleep(interval)
+    return frames
+
+
+def _save_burst_frames(name: str, frames: list[Image.Image], box: tuple[int, int, int, int]) -> None:
+    if not frames:
+        print("No frames were captured - nothing to save.")
+        return
+
+    x0, y0, x1, y1 = box
+    for old in TEMPLATES_DIR.glob(f"{name}_*.png"):
+        old.unlink()
+
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+    cropped = None
+    for i, frame in enumerate(frames, start=1):
+        cropped = frame.crop((x0, y0, x1, y1))
+        cropped.save(TEMPLATES_DIR / f"{name}_{i}.png")
+
+    print(
+        f"Saved {len(frames)} frame(s): templates/{name}_1.png .. {name}_{len(frames)}.png "
+        f"({cropped.width}x{cropped.height}px each)"
+    )
+    print(
+        f"Opening {TEMPLATES_DIR} - feel free to delete any {name}_*.png frames you don't want to "
+        "keep (near-duplicates, ones that don't show the element, etc.). Fewer frames = faster checks "
+        "at runtime; matching against a handful of well-chosen ones works as well as matching all of them."
+    )
+    try:
+        os.startfile(TEMPLATES_DIR)  # noqa: S606
+    except OSError:
+        pass
+
+
 def main() -> None:
-    if len(sys.argv) not in (2, 3):
+    if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
 
@@ -223,6 +296,30 @@ def main() -> None:
         selector = RegionSelector(screenshot, on_selected=lambda box: _save_region(region_name, box))
         selector.run()
         return
+
+    if sys.argv[1] == "--burst":
+        if len(sys.argv) < 3:
+            print(__doc__)
+            sys.exit(1)
+        burst_name = sys.argv[2]
+        duration = float(sys.argv[3]) if len(sys.argv) >= 4 else DEFAULT_BURST_DURATION_SEC
+        interval = float(sys.argv[4]) if len(sys.argv) >= 5 else DEFAULT_BURST_INTERVAL_SEC
+
+        check_resolution(auto_update=False)
+        print(f"Burst: {burst_name} (duration={duration:.1f}s, interval={interval:.2f}s)")
+        _run_countdown()
+        print("Capturing - trigger the splash/animation now if you haven't already...")
+        frames = _capture_burst(duration, interval)
+        print(f"Captured {len(frames)} frame(s). Drag a rectangle over the element to track.")
+
+        preview = frames[len(frames) // 2] if frames else ImageGrab.grab()
+        selector = RegionSelector(preview, on_selected=lambda box: _save_burst_frames(burst_name, frames, box))
+        selector.run()
+        return
+
+    if len(sys.argv) != 2:
+        print(__doc__)
+        sys.exit(1)
 
     template_name = sys.argv[1]
     output_path = TEMPLATES_DIR / f"{template_name}.png"
