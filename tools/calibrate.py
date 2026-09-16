@@ -1,4 +1,4 @@
-"""UI template calibration tool for the "ranked game" command.
+"""UI template calibration tool for the "ranked game" / "normal game" commands.
 
 Usage:
     python tools/calibrate.py --check-resolution
@@ -10,6 +10,10 @@ Usage:
     python tools/calibrate.py role_support
     python tools/calibrate.py role_hard_support
     python tools/calibrate.py find_match_button
+    python tools/calibrate.py normal_game_tab
+    python tools/calibrate.py modes_show_all_collapsed
+    python tools/calibrate.py mode_<id>            (<id>: all_pick, turbo, single_draft,
+    python tools/calibrate.py mode_<id>_selected    random_draft, ability_draft)
     python tools/calibrate.py --region <name>
     python tools/calibrate.py --burst <name> [duration_sec] [interval_sec]
 

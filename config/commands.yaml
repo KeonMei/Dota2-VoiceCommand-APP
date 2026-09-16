@@ -32,6 +32,15 @@
 #                        one is actually detected, then waits for play_button
 #                        to confirm the main menu has finished loading.
 #                        Takes no fields.
+#   select_exclusive_mode - normal-game mode checkboxes, same idea as
+#                        select_exclusive_role: reads the "mode" param,
+#                        expands "Показать все режимы" if
+#                        modes_show_all_collapsed.png is visible, unticks
+#                        every other mode listed in config.yaml -> modes and
+#                        ticks the target, re-checking the screen until only
+#                        the target is ticked. Needs mode_<id>.png and
+#                        mode_<id>_selected.png (checkbox + label) for every
+#                        listed mode.
 #   parallel           - `branches:` is a list of step lists. Branches run
 #                        at the same time (one thread each); steps inside a
 #                        branch run in order, so put dependent steps in the
@@ -163,3 +172,74 @@ commands:
 
       - type: notify
         text: "Поиск игры запущен, роль - {role_label}"
+
+  # Normal (unranked) game in a single mode. `params` are passed to the steps
+  # as-is, the same way role_param passes the recognized role.
+  - id: normal_turbo
+    description: "Start a normal Turbo match (only Turbo ticked)"
+    phrases:
+      - "запусти турбо"
+      - "начни турбо"
+      - "обычная игра турбо"
+      - "начни обычную игру турбо"
+      - "запусти обычную игру турбо"
+    params: {mode: turbo, mode_label: "Турбо"}
+    match_threshold: 80
+    steps: &normal_game_steps
+      - type: notify
+        text: "Выполняю: обычная игра, режим - {mode_label}"
+
+      - type: ensure_dota_ready
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: play_button
+        retries: 2
+        optional: true
+        region_key: play_button
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: normal_game_tab
+        retries: 2
+        optional: true
+        region_key: normal_game_tab
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      # Expands "Показать все режимы" if collapsed, then leaves only the
+      # target mode ticked - see select_exclusive_mode in the header.
+      # region_key is optional here, like for roles.
+      - type: select_exclusive_mode
+        retries: 4
+        region_key: mode_list
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: click_template
+        template: find_match_button
+        retries_key: max_retries
+        region_key: find_match_button
+
+      - type: notify
+        text: "Поиск игры запущен, режим - {mode_label}"
+
+  - id: normal_all_pick
+    description: "Start a normal All Pick match (only All Pick ticked)"
+    phrases:
+      - "запусти олл пик"
+      - "начни олл пик"
+      - "обычная игра олл пик"
+      - "начни обычную игру олл пик"
+      - "запусти обычную игру олл пик"
+      - "запусти ол пик"
+      - "запусти all pick"
+    params: {mode: all_pick, mode_label: "Олл пик"}
+    match_threshold: 80
+    steps: *normal_game_steps

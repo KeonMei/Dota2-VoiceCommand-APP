@@ -12,6 +12,12 @@ logger = logging.getLogger("dota_voice.commands")
 
 _PUNCT_RE = re.compile(r"[^\w\sа-яёА-ЯЁ]", re.UNICODE)
 _SPACE_RE = re.compile(r"\s+")
+# token_set_ratio scores 100 whenever the spoken words are a subset of a
+# phrase, so "обычная игра" alone would fully match "обычная игра турбо".
+# Every meaningful phrase word must therefore also be (fuzzily) present in
+# what was said; very short words ("на") are too noisy to require.
+_TOKEN_MATCH_THRESHOLD = 75
+_MIN_REQUIRED_TOKEN_LEN = 3
 
 
 def normalize(text: str) -> str:
@@ -19,6 +25,23 @@ def normalize(text: str) -> str:
     text = _PUNCT_RE.sub(" ", text)
     text = _SPACE_RE.sub(" ", text).strip()
     return text
+
+
+def covers_phrase(phrase_norm: str, spoken_norm: str) -> bool:
+    spoken_tokens = spoken_norm.split()
+    for token in phrase_norm.split():
+        if len(token) < _MIN_REQUIRED_TOKEN_LEN:
+            continue
+        if not any(fuzz.ratio(token, spoken) >= _TOKEN_MATCH_THRESHOLD for spoken in spoken_tokens):
+            return False
+    return True
+
+
+def phrase_score(phrase: str, spoken_norm: str) -> int:
+    phrase_norm = normalize(phrase)
+    if not covers_phrase(phrase_norm, spoken_norm):
+        return 0
+    return int(fuzz.token_set_ratio(phrase_norm, spoken_norm))
 
 
 class CommandMatcher:
@@ -52,10 +75,10 @@ class CommandMatcher:
     def _match_plain_command(self, cmd: dict, norm: str, threshold: int) -> tuple[int, dict, dict] | None:
         best_score = 0
         for phrase in cmd.get("phrases", []):
-            score = fuzz.token_set_ratio(normalize(phrase), norm)
+            score = phrase_score(phrase, norm)
             best_score = max(best_score, score)
         if best_score >= threshold:
-            return best_score, cmd, {}
+            return best_score, cmd, dict(cmd.get("params") or {})
         return None
 
     def _match_role_command(self, cmd: dict, norm: str, threshold: int) -> tuple[int, dict, dict] | None:
@@ -69,8 +92,7 @@ class CommandMatcher:
             for role_id, role_data in self.roles.items():
                 synonyms = role_data.get("synonyms") or [role_id]
                 for synonym in synonyms:
-                    candidate = normalize(phrase.replace("{role}", synonym))
-                    score = fuzz.token_set_ratio(candidate, norm)
+                    score = phrase_score(phrase.replace("{role}", synonym), norm)
                     if score < threshold:
                         continue
 

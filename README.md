@@ -6,6 +6,8 @@ A Windows voice assistant that reacts to spoken Russian commands to:
 - launch Steam, Dota 2, Chrome (opening Yandex Music) and Discord ("Basic minimum");
 - drive Dota 2's client menus to queue a Ranked Roles match for a given role
   (e.g. "Start a ranked game as mid");
+- queue a normal Turbo or All Pick match with only that mode ticked
+  ("Запусти турбо", "Запусти олл пик");
 - stop ("Стоп") whatever command is currently running.
 
 Speech recognition runs fully offline (Vosk). Clicking through Dota 2's own
@@ -196,6 +198,30 @@ so only the highlight differs. Repeat for all 13 names, then test:
 
 ...and immediately again with a different role, to confirm the previous one
 gets cleared instead of stacking.
+
+### Normal game (Turbo / All Pick)
+
+"Запусти турбо" / "Запусти олл пик" reuse `play_button` and
+`find_match_button`, plus:
+
+| Template name | What to capture |
+|---------------|-----------------|
+| `normal_game_tab` | The "Обычная игра" section header |
+| `modes_show_all_collapsed` | The "Показать все режимы" line while collapsed (arrow + text) |
+| `mode_<id>` / `mode_<id>_selected` | Each mode's row — checkbox **and** label together — unticked and ticked. `<id>` is `all_pick`, `turbo`, `single_draft`, `random_draft`, `ability_draft` (`config.yaml` → `modes`) |
+
+Mode checkboxes are toggles just like role icons, and clicking the label
+toggles the row too. The `select_exclusive_mode` step expands "Показать все
+режимы" first (so a ticked hidden mode can't slip through), unticks every
+other mode, ticks the target and re-checks until only it is on — so calibrate
+all five modes, not only the ones you have commands for. Crop each pair
+identically and keep the mouse off the list while capturing (a hovered row
+looks different). Optionally, `python tools/calibrate.py --region mode_list`
+over the expanded list speeds up the search.
+
+Only `turbo` and `all_pick` have voice commands today; for another mode, copy
+the `normal_all_pick` entry in `commands.yaml` and change its `id`, `phrases`
+and `params` (`mode: single_draft`, etc.) — no code changes needed.
 
 If an element isn't found, `logs/app.log` shows which template and score
 failed to match — recalibrate it more tightly, lower `vision.match_threshold`

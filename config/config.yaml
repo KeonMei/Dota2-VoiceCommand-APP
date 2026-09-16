@@ -74,6 +74,7 @@ vision:
   retry_delay_sec: 0.4
   # Resolution the current templates were calibrated for (for reference/warnings).
   calibrated_resolution: [1920, 1080]
+  region_mode_list: [1534, 611, 328, 298]
   region_role_icons: [1540, 587, 213, 131]
   # Optional named search regions: [left, top, width, height], written by
   # `python tools/calibrate.py --region <name>`. A step with a matching
@@ -139,3 +140,20 @@ roles:
   hard_support:
     label: "Полная поддержка"
     synonyms: ["полная поддержка", "хард саппорт", "хардсаппорт", "пятая позиция", "5 позиция", "пятерка", "питёрка"]
+
+# Normal-game modes, in the order they're listed in Dota 2. The key is the
+# mode id used in template filenames: templates/mode_<id>.png (checkbox +
+# label, unticked) and templates/mode_<id>_selected.png (same crop, ticked).
+# select_exclusive_mode unticks every listed mode except the target, so keep
+# all of them calibrated even if only some have voice commands.
+modes:
+  all_pick:
+    label: "Олл пик"
+  turbo:
+    label: "Турбо"
+  single_draft:
+    label: "Сингл драфт"
+  random_draft:
+    label: "Рэндом драфт"
+  ability_draft:
+    label: "Абилити драфт"
