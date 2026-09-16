@@ -168,11 +168,13 @@ changes):
 | Template name              | What to capture                                         |
 |-----------------------------|---------------------------------------------------------|
 | `play_button`               | The "Play" button in the Dota 2 main menu               |
-| `ranked_roles_tab`          | The "Ranked Roles" tab on the game-mode selection screen |
+| `ranked_roles_tab`          | The "Рейтинговая игра" header while that section is **open** |
+| `ranked_roles_tab_inactive` | The same header while it's **closed** (normal-game section open) |
 | `role_<id>` / `role_<id>_selected` | Each role icon in its unselected and selected/highlighted state — `<id>` is `carry`, `mid`, `offlane`, `support`, `hard_support` |
 | `find_match_button`         | The button that confirms/starts the matchmaking search  |
 
-Two states per role are needed because Dota's role icons are toggles, not an
+A section header is clicked only when its closed look matches, so a
+command never toggles a section that's already open. Two states per role are needed because Dota's role icons are toggles, not an
 exclusive choice — clicking one doesn't clear whatever was already selected
 from a previous game. The `select_exclusive_role` step tells "selected" from
 "not selected" apart using these templates, clicks off anything stale, then
@@ -206,7 +208,8 @@ gets cleared instead of stacking.
 
 | Template name | What to capture |
 |---------------|-----------------|
-| `normal_game_tab` | The "Обычная игра" section header |
+| `normal_game_tab` | The "Обычная игра" header while that section is **open** |
+| `normal_game_tab_inactive` | The same header while it's **closed** (ranked section open) |
 | `modes_show_all_collapsed` | The "Показать все режимы" line while collapsed (arrow + text) |
 | `mode_<id>` / `mode_<id>_selected` | Each mode's row — checkbox **and** label together — unticked and ticked. `<id>` is `all_pick`, `turbo`, `single_draft`, `random_draft`, `ability_draft` (`config.yaml` → `modes`) |
 
