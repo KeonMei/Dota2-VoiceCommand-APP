@@ -65,6 +65,7 @@ class ActionExecutor:
             "click_point": self._h_click_point,
             "key_press": self._h_key_press,
             "select_exclusive_role": self._h_select_exclusive_role,
+            "ensure_dota_ready": self._h_ensure_dota_ready,
         }
 
     def request_stop(self) -> None:
@@ -194,6 +195,51 @@ class ActionExecutor:
                 if self._stop_event.is_set():
                     return
                 raise ActionError(f"Окно '{title_cfg}' не появилось за отведённое время")
+
+    def _h_ensure_dota_ready(self, step: dict, context: dict) -> None:
+        """Walks the Steam -> Dota 2 launch chain, checking each stage instead of
+        assuming a cold start: skips Steam if it's already running, skips
+        launching Dota 2 if its process is already up, and always finishes by
+        restoring/focusing the Dota 2 window (covers "already open but
+        minimized")."""
+        dota_cfg = self.config.get("dota2", default={}) or {}
+        process_name = dota_cfg.get("process_name", "dota2.exe")
+        window_title = dota_cfg.get("window_title_substr", "Dota 2")
+
+        if process_utils.is_process_running(process_name):
+            logger.info("Dota 2 is already running.")
+        else:
+            logger.info("Dota 2 is not running - making sure Steam is up first.")
+            self._h_launch_process(
+                {"app": "steam", "wait_window": True, "timeout_key": "steam_ready_sec"}, context
+            )
+            if self._stop_event.is_set():
+                return
+            self._interruptible_sleep(float(self.config.get("delays", "after_steam_launch", default=3)))
+
+            logger.info("Launching Dota 2 via Steam.")
+            self._h_launch_uri(
+                {
+                    "uri": "steam://rungameid/{dota_app_id}",
+                    "wait_window_title_key": "dota2",
+                    "timeout_key": "dota_ready_sec",
+                },
+                context,
+            )
+            if self._stop_event.is_set():
+                return
+            self._interruptible_sleep(float(self.config.get("delays", "after_dota_launch", default=5)))
+
+        if self._stop_event.is_set():
+            return
+
+        hwnd = process_utils.find_window_by_title_substr(window_title)
+        if hwnd is None:
+            raise ActionError("Окно Dota 2 не найдено, хотя процесс запущен")
+
+        logger.info("Bringing the Dota 2 window to the foreground.")
+        if not process_utils.restore_and_focus_window(hwnd):
+            logger.warning("Could not confirm the Dota 2 window was focused - continuing anyway.")
 
     def _h_wait_window(self, step: dict, context: dict) -> None:
         title = self._fmt(step["title"], context)

@@ -21,6 +21,12 @@
 #                        isn't already selected. Needs both role_<id>.png and
 #                        role_<id>_selected.png templates for every role (see
 #                        README, calibration section).
+#   ensure_dota_ready  - checks the Steam -> Dota 2 chain at whatever stage
+#                        it's currently in: skips Steam if it's already
+#                        running, skips launching Dota 2 if its process is
+#                        already up, and always finishes by restoring/
+#                        focusing the Dota 2 window (covers "already open
+#                        but minimized"). Takes no fields.
 #
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
@@ -113,6 +119,11 @@ commands:
     steps:
       - type: notify
         text: "Выполняю: рейтинговая игра, роль - {role_label}"
+
+      - type: ensure_dota_ready
+
+      - type: sleep
+        seconds_key: between_ui_clicks
 
       # play_button/ranked_roles_tab are marked optional with a short retry
       # budget: if the user is already past that screen (clicked Play or

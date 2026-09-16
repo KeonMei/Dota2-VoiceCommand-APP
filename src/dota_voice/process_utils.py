@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 
 import psutil
+import win32api
+import win32con
 import win32gui
 
 logger = logging.getLogger("dota_voice.process")
@@ -85,3 +87,24 @@ def launch_process(path: str, args: list[str] | None = None, process_name: str |
 def launch_uri(uri: str) -> None:
     logger.info("Opening URI: %s", uri)
     os.startfile(uri)  # noqa: S606
+
+
+def restore_and_focus_window(hwnd: int) -> bool:
+    try:
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        else:
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+        except Exception:
+            # Windows blocks SetForegroundWindow from a background process unless
+            # it recently had input focus. Sending a no-op key event resets that
+            # internal timer - a well-known, harmless workaround.
+            win32api.keybd_event(0, 0, 0, 0)
+            win32gui.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        logger.warning("Failed to bring window %s to the foreground", hwnd)
+        return False
