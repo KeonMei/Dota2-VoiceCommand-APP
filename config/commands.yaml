@@ -118,7 +118,6 @@ commands:
       - "начать рейтинговую игру на {role}"
       - "запусти рейтинг на {role}"
       - "рейтинговый матч на {role}"
-      - "поиск игры на {role}"
     role_param: role
     match_threshold: 75
     steps:
