@@ -69,6 +69,7 @@ class ActionExecutor:
             "ensure_dota_ready": self._h_ensure_dota_ready,
             "parallel": self._h_parallel,
             "select_exclusive_mode": self._h_select_exclusive_mode,
+            "open_section": self._h_open_section,
         }
 
     def request_stop(self) -> None:
@@ -476,22 +477,65 @@ class ActionExecutor:
             f"(проверьте калибровку шаблонов role_{target_role}.png / role_{target_role}_selected.png)"
         )
 
-    def _mode_states(self, modes, region) -> dict[str, tuple[bool, vision.MatchResult]]:
-        """For every mode whose row is on screen: (is_ticked, where to click).
+    # A row under the cursor is highlighted and scores lower against its
+    # template. We know that row is there (we just clicked it), so a looser
+    # threshold is enough to keep tracking it.
+    _HOVERED_ROW_THRESHOLD = 0.7
+
+    def _mode_states(self, modes, region) -> dict[str, tuple[bool, tuple[int, int]]]:
+        """For every mode whose row is on screen: (is_ticked, where to click -
+        the checkbox itself when it can be located, else the row center).
         mode_<id>.png and mode_<id>_selected.png differ only by the checkbox,
-        so both can clear the threshold - whichever scores higher wins."""
+        which can be ~1% of a row with hero art behind it - so both whole-row
+        scores are nearly equal. The row is located with whichever template
+        scores higher, then the tick is decided by comparing just the checkbox
+        area (see vision.checkbox_patches)."""
         screenshot = vision.capture_screen(region)
+        origin = (region[0], region[1]) if region else (0, 0)
+        cursor_x, cursor_y = pyautogui.position()
         states = {}
         for mode_id in modes:
-            plain = vision.best_match(self.templates_dir / f"mode_{mode_id}.png", region, screenshot)
-            ticked = vision.best_match(self.templates_dir / f"mode_{mode_id}_selected.png", region, screenshot)
+            plain_path = self.templates_dir / f"mode_{mode_id}.png"
+            ticked_path = self.templates_dir / f"mode_{mode_id}_selected.png"
+            plain = vision.best_match(plain_path, region, screenshot)
+            ticked = vision.best_match(ticked_path, region, screenshot)
             candidates = [(m.score, is_ticked, m) for m, is_ticked in ((plain, False), (ticked, True)) if m is not None]
             if not candidates:
                 continue
             score, is_ticked, match = max(candidates, key=lambda c: c[0])
-            if score >= self.match_threshold:
-                states[mode_id] = (is_ticked, match)
+            hovered = (
+                abs(cursor_x - match.center_x) <= match.width // 2
+                and abs(cursor_y - match.center_y) <= match.height // 2
+            )
+            threshold = self._HOVERED_ROW_THRESHOLD if hovered else self.match_threshold
+            if score < threshold:
+                logger.debug("Mode '%s' not found (score=%.3f, hovered=%s)", mode_id, score, hovered)
+                continue
+
+            click_point = (match.center_x, match.center_y)
+            patches = vision.checkbox_patches(plain_path, ticked_path)
+            if patches is not None:
+                offset = patches.ticked_offset if is_ticked else patches.plain_offset
+                row_left = match.center_x - match.width // 2 - origin[0]
+                row_top = match.center_y - match.height // 2 - origin[1]
+                box_left, box_top = row_left + offset[0], row_top + offset[1]
+                box_state = vision.checkbox_is_ticked(screenshot, (box_left, box_top), patches)
+                if box_state is not None:
+                    is_ticked = box_state
+                    box_h, box_w = patches.plain.shape[:2]
+                    click_point = (origin[0] + box_left + box_w // 2, origin[1] + box_top + box_h // 2)
+            logger.debug("Mode '%s': row score=%.3f, hovered=%s, ticked=%s", mode_id, score, hovered, is_ticked)
+            states[mode_id] = (is_ticked, click_point)
         return states
+
+    @staticmethod
+    def _pad_region(region: tuple[int, int, int, int], pad: int) -> tuple[int, int, int, int]:
+        screen_w, screen_h = vision.get_screen_resolution()
+        left, top, width, height = region
+        new_left, new_top = max(0, left - pad), max(0, top - pad)
+        right = min(screen_w, left + width + pad)
+        bottom = min(screen_h, top + height + pad)
+        return new_left, new_top, right - new_left, bottom - new_top
 
     def _h_select_exclusive_mode(self, step: dict, context: dict) -> None:
         """Normal-game mode checkboxes are toggles like the role icons: leaves
@@ -509,41 +553,42 @@ class ActionExecutor:
             raise ActionError(f"Режим '{target_mode}' не описан в config.yaml -> modes")
 
         region = self._region_for(step)
+        if region is not None:
+            # A hand-drawn region is often exactly as wide as the row crops
+            # themselves - a template bigger than the region never matches.
+            region = self._pad_region(region, 20)
         click_delay = float(self.config.get("delays", "between_ui_clicks", default=0.3))
 
-        expander = vision.find_template(
-            self.templates_dir / "modes_show_all_collapsed.png", threshold=self.match_threshold, region=region
-        )
-        if expander is not None:
-            logger.info("Mode list is collapsed - expanding it to check the hidden modes.")
-            self._move_and_click(expander.center_x, expander.center_y)
-            self._interruptible_sleep(click_delay)
-
-        # Park the cursor off the list before each look: a hovered row is
-        # highlighted and would no longer match its template.
-        screen_w, screen_h = vision.get_screen_resolution()
-        if region is not None:
-            left, top, width, height = region
-            park_point = (min(left + width + 30, screen_w - 5), top + height // 2)
-        else:
-            park_point = (screen_w // 2, screen_h // 2)
+        # The expander's collapsed and expanded looks differ only by the arrow,
+        # so its template matches both - clicking it on sight would collapse an
+        # already open list. Every mode row being visible means it's open.
+        if len(self._mode_states(modes, region)) < len(modes):
+            expander = vision.find_template(
+                self.templates_dir / "modes_show_all_collapsed.png", threshold=self.match_threshold, region=region
+            )
+            if expander is not None:
+                logger.info("Mode list is collapsed - expanding it to check the hidden modes.")
+                self._move_and_click(expander.center_x, expander.center_y)
+                self._interruptible_sleep(click_delay)
 
         label = context.get("mode_label", target_mode)
         retries = self._retries(step)
+        states: dict[str, tuple[bool, tuple[int, int]]] = {}
         for attempt in range(1, retries + 1):
             if self._stop_event.is_set():
                 return
-            pyautogui.moveTo(*park_point, duration=0)
-            self._interruptible_sleep(0.15)
 
             states = self._mode_states(modes, region)
-            if target_mode not in states:
-                logger.debug("Attempt %d/%d: mode '%s' not found on screen", attempt, retries, target_mode)
+            # A hidden row may still be ticked - don't judge (or click) until
+            # every mode is on screen.
+            missing = [mode_id for mode_id in modes if mode_id not in states]
+            if missing:
+                logger.debug("Attempt %d/%d: modes not visible: %s", attempt, retries, ", ".join(missing))
                 self._interruptible_sleep(self.retry_delay)
                 continue
 
             stale = [mode_id for mode_id, (is_ticked, _) in states.items() if is_ticked and mode_id != target_mode]
-            target_ticked, target_match = states[target_mode]
+            target_ticked, target_point = states[target_mode]
             if not stale and target_ticked:
                 logger.info("Only the '%s' mode is selected.", target_mode)
                 return
@@ -552,20 +597,76 @@ class ActionExecutor:
                 if self._stop_event.is_set():
                     return
                 logger.info("Unticking mode '%s'.", mode_id)
-                match = states[mode_id][1]
-                self._move_and_click(match.center_x, match.center_y)
+                self._move_and_click(*states[mode_id][1])
                 self._interruptible_sleep(click_delay)
 
             if not target_ticked and not self._stop_event.is_set():
                 logger.info("Ticking mode '%s'.", target_mode)
-                self._move_and_click(target_match.center_x, target_match.center_y)
+                self._move_and_click(*target_point)
                 self._interruptible_sleep(click_delay)
 
         if self._stop_event.is_set():
             return
+        seen = ", ".join(f"{mode_id}={'on' if ticked else 'off'}" for mode_id, (ticked, _) in states.items())
+        logger.error("Mode selection gave up; last seen: %s", seen or "no mode rows")
+        missing = [mode_id for mode_id in modes if mode_id not in states]
+        if missing:
+            names = ", ".join(str(modes[mode_id].get("label", mode_id)) for mode_id in missing)
+            raise ActionError(
+                f"Не видно всех режимов в списке ({names}) - поиск не запущен, "
+                f"чтобы не включить лишний режим. Проверьте, раскрыт ли список 'Показать все режимы'"
+            )
         raise ActionError(
             f"Не удалось оставить включённым только режим '{label}' "
             f"(проверьте шаблоны mode_{target_mode}.png / mode_{target_mode}_selected.png)"
+        )
+
+    def _h_open_section(self, step: dict, context: dict) -> None:
+        """Opens a play-menu section (Рейтинговая / Обычная игра) only if it
+        isn't open already. The header looks different open vs. closed, so
+        both are calibrated: `template` (open) and `inactive_template`
+        (closed). Like the mode rows, the two can both clear the threshold,
+        so the higher score decides. Clicks only a closed header."""
+        active_path = self.templates_dir / f"{step['template']}.png"
+        inactive_path = self.templates_dir / f"{step['inactive_template']}.png"
+        region = self._region_for(step)
+        click_delay = float(self.config.get("delays", "between_ui_clicks", default=0.3))
+        if not inactive_path.exists():
+            logger.warning(
+                "%s is not calibrated - a closed '%s' section can't be opened automatically.",
+                inactive_path.name, step["template"],
+            )
+
+        retries = self._retries(step)
+        for attempt in range(1, retries + 1):
+            if self._stop_event.is_set():
+                return
+            screenshot = vision.capture_screen(region)
+            active = vision.best_match(active_path, region, screenshot)
+            inactive = vision.best_match(inactive_path, region, screenshot) if inactive_path.exists() else None
+            active_score = active.score if active else 0.0
+            inactive_score = inactive.score if inactive else 0.0
+
+            if active_score >= self.match_threshold and active_score >= inactive_score:
+                logger.info("Section '%s' is already open.", step["template"])
+                return
+            if inactive is not None and inactive_score >= self.match_threshold:
+                logger.info("Opening section '%s'.", step["template"])
+                self._move_and_click(inactive.center_x, inactive.center_y)
+                # Let the menu finish re-laying itself out before the next step looks at it.
+                self._interruptible_sleep(click_delay + 0.5)
+                return
+            logger.debug(
+                "Attempt %d/%d: section header '%s' not found (open=%.3f, closed=%.3f)",
+                attempt, retries, step["template"], active_score, inactive_score,
+            )
+            self._interruptible_sleep(self.retry_delay)
+
+        if self._stop_event.is_set():
+            return
+        raise ActionError(
+            f"Не найден заголовок раздела '{step['template']}' ни в открытом, ни в закрытом виде "
+            f"(проверьте шаблоны {step['template']}.png / {step['inactive_template']}.png)"
         )
 
     def _h_click_point(self, step: dict, context: dict) -> None:

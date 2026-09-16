@@ -34,13 +34,20 @@
 #                        Takes no fields.
 #   select_exclusive_mode - normal-game mode checkboxes, same idea as
 #                        select_exclusive_role: reads the "mode" param,
-#                        expands "Показать все режимы" if
-#                        modes_show_all_collapsed.png is visible, unticks
+#                        expands "Показать все режимы" (clicking
+#                        modes_show_all_collapsed.png) only if some listed
+#                        mode isn't visible, refuses to go on until every
+#                        listed mode is on screen, unticks
 #                        every other mode listed in config.yaml -> modes and
 #                        ticks the target, re-checking the screen until only
 #                        the target is ticked. Needs mode_<id>.png and
 #                        mode_<id>_selected.png (checkbox + label) for every
 #                        listed mode.
+#   open_section       - opens a play-menu section only if it's closed:
+#                        `template` is the header as it looks while the
+#                        section is open, `inactive_template` while it's
+#                        closed. Clicks the header only when the closed look
+#                        matches better; does nothing if already open.
 #   parallel           - `branches:` is a list of step lists. Branches run
 #                        at the same time (one thread each); steps inside a
 #                        branch run in order, so put dependent steps in the
@@ -149,11 +156,13 @@ commands:
       - type: sleep
         seconds_key: between_ui_clicks
 
-      - type: click_template
+      # Clicks the "Рейтинговая игра" header only if that section is closed
+      # (e.g. the normal-game section is open instead).
+      - type: open_section
         template: ranked_roles_tab
+        inactive_template: ranked_roles_tab_inactive
         retries: 2
         optional: true
-        region_key: ranked_roles_tab
 
       - type: sleep
         seconds_key: between_ui_clicks
@@ -203,11 +212,13 @@ commands:
       - type: sleep
         seconds_key: between_ui_clicks
 
-      - type: click_template
+      # Clicks the "Обычная игра" header only if that section is closed
+      # (e.g. the ranked section is open instead).
+      - type: open_section
         template: normal_game_tab
+        inactive_template: normal_game_tab_inactive
         retries: 2
         optional: true
-        region_key: normal_game_tab
 
       - type: sleep
         seconds_key: between_ui_clicks

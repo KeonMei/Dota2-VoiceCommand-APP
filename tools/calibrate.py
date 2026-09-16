@@ -3,14 +3,16 @@
 Usage:
     python tools/calibrate.py --check-resolution
     python tools/calibrate.py play_button
-    python tools/calibrate.py ranked_roles_tab
+    python tools/calibrate.py ranked_roles_tab            (header, section open)
+    python tools/calibrate.py ranked_roles_tab_inactive   (header, section closed)
     python tools/calibrate.py role_carry
     python tools/calibrate.py role_mid
     python tools/calibrate.py role_offlane
     python tools/calibrate.py role_support
     python tools/calibrate.py role_hard_support
     python tools/calibrate.py find_match_button
-    python tools/calibrate.py normal_game_tab
+    python tools/calibrate.py normal_game_tab             (header, section open)
+    python tools/calibrate.py normal_game_tab_inactive    (header, section closed)
     python tools/calibrate.py modes_show_all_collapsed
     python tools/calibrate.py mode_<id>            (<id>: all_pick, turbo, single_draft,
     python tools/calibrate.py mode_<id>_selected    random_draft, ability_draft)
