@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pyautogui
+import win32gui
 
 from . import process_utils, vision
 from .config import Config
@@ -66,6 +67,7 @@ class ActionExecutor:
             "key_press": self._h_key_press,
             "select_exclusive_role": self._h_select_exclusive_role,
             "ensure_dota_ready": self._h_ensure_dota_ready,
+            "parallel": self._h_parallel,
         }
 
     def request_stop(self) -> None:
@@ -81,9 +83,21 @@ class ActionExecutor:
 
     def run_steps(self, steps: list[dict], context: dict[str, Any]) -> bool:
         self._stop_event.clear()
+        try:
+            completed = self._run_sequence(steps, context)
+        except ActionError as exc:
+            self.notifier.beep(ok=False)
+            self.notifier.speak(f"Не удалось выполнить шаг: {exc}")
+            return False
+        if not completed:
+            logger.info("Step sequence stopped by voice command.")
+        return completed
+
+    def _run_sequence(self, steps: list[dict], context: dict[str, Any]) -> bool:
+        """Runs steps in order. Returns False if interrupted by a stop request,
+        raises ActionError if a non-optional step fails."""
         for step in steps:
             if self._stop_event.is_set():
-                logger.info("Step sequence stopped by voice command.")
                 return False
 
             step_type = step.get("type")
@@ -92,22 +106,51 @@ class ActionExecutor:
                 logger.error("Unknown step type: %s", step_type)
                 continue
 
-            optional = bool(step.get("optional", False))
             try:
                 handler(step, context)
             except ActionError as exc:
                 logger.error("Step '%s' failed: %s", step_type, exc)
-                if optional:
+                if step.get("optional", False):
                     logger.warning("Step is marked optional, continuing.")
                     continue
-                self.notifier.beep(ok=False)
-                self.notifier.speak(f"Не удалось выполнить шаг: {exc}")
-                return False
+                raise
 
             if self._stop_event.is_set():
-                logger.info("Step sequence stopped by voice command.")
                 return False
         return True
+
+    def _h_parallel(self, step: dict, context: dict) -> None:
+        """Runs each branch (a list of steps) in its own thread; steps inside a
+        branch still run in order, so dependencies (Steam -> Dota 2, Chrome ->
+        Yandex Music tab) go in the same branch. A failed branch doesn't cancel
+        the others - all branches are awaited, then the failures are reported
+        together."""
+        branches = step.get("branches") or []
+        errors: list[str] = []
+        errors_lock = threading.Lock()
+
+        def _run_branch(index: int, branch_steps: list[dict]) -> None:
+            try:
+                self._run_sequence(branch_steps, context)
+            except ActionError as exc:
+                with errors_lock:
+                    errors.append(str(exc))
+            except Exception:
+                logger.exception("Parallel branch %d crashed", index)
+                with errors_lock:
+                    errors.append(f"внутренняя ошибка в ветке {index}")
+
+        threads = [
+            threading.Thread(target=_run_branch, args=(i, branch), name=f"parallel-branch-{i}", daemon=True)
+            for i, branch in enumerate(branches, start=1)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        if errors:
+            raise ActionError("; ".join(errors))
 
     def _fmt(self, value: str, context: dict[str, Any]) -> str:
         try:
@@ -214,6 +257,14 @@ class ActionExecutor:
             self._interruptible_sleep(1.0)
         return False
 
+    def _focus_dota_window(self) -> None:
+        # Other apps launched in parallel (Chrome, Discord) can steal focus while
+        # Dota 2 is loading - make sure key presses actually land in the game.
+        title = self.config.get("dota2", "window_title_substr", default="Dota 2")
+        hwnd = process_utils.find_window_by_title_substr(title)
+        if hwnd is not None and win32gui.GetForegroundWindow() != hwnd:
+            process_utils.restore_and_focus_window(hwnd)
+
     def _skip_intro_and_wait_for_menu(self, timeout: float) -> bool:
         """Waits for the Play button while also watching for any calibrated
         intro-splash frame (templates/intro_splash*.png) and pressing Escape
@@ -245,6 +296,7 @@ class ActionExecutor:
                 for template_path in intro_templates:
                     if vision.find_template(template_path, threshold=self.match_threshold) is not None:
                         logger.info("Detected intro splash '%s', pressing Escape to skip it.", template_path.stem)
+                        self._focus_dota_window()
                         pyautogui.press("escape")
                         last_skip_time = now
                         break

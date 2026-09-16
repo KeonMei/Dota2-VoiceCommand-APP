@@ -32,6 +32,13 @@
 #                        one is actually detected, then waits for play_button
 #                        to confirm the main menu has finished loading.
 #                        Takes no fields.
+#   parallel           - `branches:` is a list of step lists. Branches run
+#                        at the same time (one thread each); steps inside a
+#                        branch run in order, so put dependent steps in the
+#                        same branch. All branches are awaited; a failing
+#                        required step in any branch fails the whole step
+#                        after the others finish. Don't put notify steps or
+#                        two UI-clicking steps in different branches.
 #
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
@@ -75,38 +82,28 @@ commands:
       - type: notify
         text: "Выполняю: базовый минимум"
 
-      - type: launch_process
-        app: steam
-        wait_window: true
-        timeout_key: steam_ready_sec
+      # Independent apps start at the same time; each branch keeps its own
+      # dependency order (Steam -> Dota 2, Chrome window -> Yandex Music tab).
+      - type: parallel
+        branches:
+          # Same logic as ranked_role: reuses a running Steam/Dota, skips the
+          # intro splash, waits for the main menu.
+          - - type: ensure_dota_ready
 
-      - type: sleep
-        seconds_key: after_steam_launch
+          - - type: launch_process
+              app: chrome
+              wait_window: true
+              timeout_key: process_launch_sec
+            - type: sleep
+              seconds_key: after_chrome_launch
+            - type: open_url_in_chrome
+              url: "https://music.yandex.ru"
 
-      - type: launch_uri
-        uri: "{dota_launch_uri}"
-        wait_window_title_key: dota2   # wait for the Dota 2 window
-        timeout_key: dota_ready_sec
-
-      - type: sleep
-        seconds_key: after_dota_launch
-
-      - type: launch_process
-        app: chrome
-        wait_window: false
-        timeout_key: process_launch_sec
-
-      - type: sleep
-        seconds_key: after_chrome_launch
-
-      - type: open_url_in_chrome
-        url: "https://music.yandex.ru"
-
-      - type: launch_process
-        app: discord
-        wait_window: false
-        optional: true
-        timeout_key: process_launch_sec
+          - - type: launch_process
+              app: discord
+              wait_window: false
+              optional: true
+              timeout_key: process_launch_sec
 
       - type: notify
         text: "Базовый минимум выполнен"

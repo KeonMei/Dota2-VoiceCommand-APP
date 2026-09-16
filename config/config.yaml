@@ -52,8 +52,8 @@ timeouts:
 
 delays:
   after_steam_launch: 3
-  after_dota_launch: 5
-  after_chrome_launch: 2
+  # Pause after the Chrome window appears, before opening the Yandex Music tab.
+  after_chrome_launch: 1
   between_ui_clicks: 0.3
 
 vision:
