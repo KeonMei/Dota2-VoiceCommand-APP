@@ -181,9 +181,17 @@ class ActionExecutor:
                     return
                 raise ActionError(f"Окно приложения '{app_key}' не появилось за отведённое время")
 
+    def _dota_launch_uri(self) -> str:
+        dota_app_id = self.config.get("dota2", "app_id", default=570)
+        launch_options = str(self.config.get("dota2", "launch_options", default="") or "").strip()
+        if launch_options:
+            return f"steam://run/{dota_app_id}//{launch_options}"
+        return f"steam://rungameid/{dota_app_id}"
+
     def _h_launch_uri(self, step: dict, context: dict) -> None:
         dota_app_id = self.config.get("dota2", "app_id", default=570)
-        uri = self._fmt(step["uri"], {**context, "dota_app_id": dota_app_id})
+        extra_context = {**context, "dota_app_id": dota_app_id, "dota_launch_uri": self._dota_launch_uri()}
+        uri = self._fmt(step["uri"], extra_context)
         process_utils.launch_uri(uri)
 
         wait_title_key = step.get("wait_window_title_key")
@@ -196,17 +204,35 @@ class ActionExecutor:
                     return
                 raise ActionError(f"Окно '{title_cfg}' не появилось за отведённое время")
 
+    def _wait_for_template_visible(
+        self, template_name: str, timeout: float, region: tuple[int, int, int, int] | None = None
+    ) -> bool:
+        template_path = self.templates_dir / f"{template_name}.png"
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._stop_event.is_set():
+                return False
+            if vision.find_template(template_path, threshold=self.match_threshold, region=region) is not None:
+                return True
+            self._interruptible_sleep(1.0)
+        return False
+
     def _h_ensure_dota_ready(self, step: dict, context: dict) -> None:
         """Walks the Steam -> Dota 2 launch chain, checking each stage instead of
         assuming a cold start: skips Steam if it's already running, skips
         launching Dota 2 if its process is already up, and always finishes by
         restoring/focusing the Dota 2 window (covers "already open but
-        minimized")."""
+        minimized"). On a fresh launch, actively waits for the main menu's
+        Play button to actually render instead of guessing a fixed delay -
+        the game window can exist for a long time before Panorama UI (and
+        the assets it needs) has finished loading."""
         dota_cfg = self.config.get("dota2", default={}) or {}
         process_name = dota_cfg.get("process_name", "dota2.exe")
         window_title = dota_cfg.get("window_title_substr", "Dota 2")
 
-        if process_utils.is_process_running(process_name):
+        was_running = process_utils.is_process_running(process_name)
+
+        if was_running:
             logger.info("Dota 2 is already running.")
         else:
             logger.info("Dota 2 is not running - making sure Steam is up first.")
@@ -220,7 +246,7 @@ class ActionExecutor:
             logger.info("Launching Dota 2 via Steam.")
             self._h_launch_uri(
                 {
-                    "uri": "steam://rungameid/{dota_app_id}",
+                    "uri": "{dota_launch_uri}",
                     "wait_window_title_key": "dota2",
                     "timeout_key": "dota_ready_sec",
                 },
@@ -228,7 +254,6 @@ class ActionExecutor:
             )
             if self._stop_event.is_set():
                 return
-            self._interruptible_sleep(float(self.config.get("delays", "after_dota_launch", default=5)))
 
         if self._stop_event.is_set():
             return
@@ -240,6 +265,28 @@ class ActionExecutor:
         logger.info("Bringing the Dota 2 window to the foreground.")
         if not process_utils.restore_and_focus_window(hwnd):
             logger.warning("Could not confirm the Dota 2 window was focused - continuing anyway.")
+
+        if self._stop_event.is_set():
+            return
+
+        if was_running:
+            self._interruptible_sleep(float(self.config.get("delays", "between_ui_clicks", default=0.3)))
+            return
+
+        menu_timeout = float(self.config.get("timeouts", "dota_menu_ready_sec", default=60))
+        logger.info("Waiting up to %.0fs for the Dota 2 main menu to finish loading...", menu_timeout)
+        self._interruptible_sleep(2.0)  # let the freshly-focused window actually paint before the first screenshot
+        if self._stop_event.is_set():
+            return
+
+        region = self._region_for({"region_key": "play_button"})
+        if not self._wait_for_template_visible("play_button", menu_timeout, region=region):
+            if self._stop_event.is_set():
+                return
+            raise ActionError(
+                "Dota 2 запущена, но главное меню не появилось за отведённое время "
+                "(возможно, идёт долгая загрузка или обновление - попробуй ещё раз, когда меню откроется)"
+            )
 
     def _h_wait_window(self, step: dict, context: dict) -> None:
         title = self._fmt(step["title"], context)

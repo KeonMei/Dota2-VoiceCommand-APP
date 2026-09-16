@@ -39,10 +39,19 @@ dota2:
   app_id: 570
   process_name: "dota2.exe"
   window_title_substr: "Dota 2"
+  # Extra launch options passed to the game via Steam (steam://run/<id>//<options>
+  # instead of steam://rungameid/<id>). -novid skips the Valve/Dota 2 intro
+  # splash videos, which noticeably speeds up reaching the main menu. Leave
+  # empty ("") to launch with no extra options, same as before.
+  launch_options: "-novid"
 
 timeouts:
   steam_ready_sec: 60          # wait for the Steam client to fully load
   dota_ready_sec: 90           # wait for the Dota 2 window to appear after launch
+  # The window can exist long before the main menu (Panorama UI) has actually
+  # finished loading - ensure_dota_ready polls for the Play button itself up
+  # to this long instead of guessing a fixed delay after a fresh launch.
+  dota_menu_ready_sec: 60
   process_launch_sec: 15       # wait for the process to appear after launching the exe
   generic_step_sec: 10
 

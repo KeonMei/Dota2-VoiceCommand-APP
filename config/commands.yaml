@@ -79,7 +79,7 @@ commands:
         seconds_key: after_steam_launch
 
       - type: launch_uri
-        uri: "steam://rungameid/{dota_app_id}"
+        uri: "{dota_launch_uri}"   # steam://run/<id>//<dota2.launch_options>, e.g. -novid
         wait_window_title_key: dota2   # wait for the Dota 2 window
         timeout_key: dota_ready_sec
 
