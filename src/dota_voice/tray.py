@@ -16,7 +16,7 @@ from .speech import SpeechListener
 logger = logging.getLogger("dota_voice.tray")
 
 
-def _make_icon_image(active: bool) -> Image.Image:
+def make_icon_image(active: bool) -> Image.Image:
     color = (0, 200, 0) if active else (150, 150, 150)
     img = Image.new("RGB", (64, 64), (30, 30, 30))
     draw = ImageDraw.Draw(img)
@@ -31,7 +31,7 @@ class TrayApp:
         self.logs_dir = config.resolve_path(config.get("feedback", "log_file", default="logs/app.log")).parent
         self._icon = pystray.Icon(
             "dota_voice",
-            _make_icon_image(listener.is_enabled),
+            make_icon_image(listener.is_enabled),
             "Dota2 Voice Command",
             menu=self._build_menu(),
         )
@@ -48,7 +48,7 @@ class TrayApp:
 
     def _on_toggle(self, icon: pystray.Icon, item) -> None:
         enabled = self.listener.toggle_enabled()
-        icon.icon = _make_icon_image(enabled)
+        icon.icon = make_icon_image(enabled)
         icon.update_menu()
 
     def _on_open_logs(self, icon: pystray.Icon, item) -> None:
@@ -65,7 +65,7 @@ class TrayApp:
 
         def _toggle():
             enabled = self.listener.toggle_enabled()
-            self._icon.icon = _make_icon_image(enabled)
+            self._icon.icon = make_icon_image(enabled)
             self._icon.update_menu()
 
         try:

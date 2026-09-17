@@ -153,6 +153,18 @@ Run it:
 python main.py
 ```
 
+Or create a desktop shortcut that starts it without a console window (run
+this with the same Python/venv the requirements are installed in; re-run it
+if you move the project folder):
+
+```bash
+python tools/create_shortcut.py
+```
+
+Only one instance runs at a time — opening the shortcut again just says it's
+already running. If startup fails, a message box shows the error and the
+full traceback is saved to `logs/startup_error.log`.
+
 A tray icon appears (a green dot means listening is active). The
 `Ctrl+Alt+L` hotkey (configurable at `config.yaml -> hotkeys.toggle_listening`)
 temporarily pauses/resumes command recognition without killing the audio
