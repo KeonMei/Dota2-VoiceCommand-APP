@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from .actions import ActionExecutor
 from .commands import CommandMatcher
@@ -14,6 +15,11 @@ from .vision import get_screen_resolution
 from .window import MainWindow
 
 logger = logging.getLogger("dota_voice.app")
+
+# Vosk sometimes finalizes a command at a short pause ("начни рейтинговую
+# игру" ... "на керри"); an unmatched piece is kept this long to be retried
+# glued to the next one.
+_JOIN_WINDOW_SEC = 3.0
 
 
 class Application:
@@ -45,6 +51,8 @@ class Application:
         )
 
         self._busy_lock = threading.Lock()
+        self._pending_text = ""
+        self._pending_since = 0.0
         self._check_resolution()
 
     def _check_resolution(self) -> None:
@@ -70,10 +78,19 @@ class Application:
             logger.info("Screen resolution %sx%s matches the template calibration.", *current)
 
     def _on_text_recognized(self, text: str) -> None:
+        now = time.monotonic()
+        pending = self._pending_text if now - self._pending_since <= _JOIN_WINDOW_SEC else ""
         matched = self.matcher.match(text)
+        if matched is None and pending:
+            matched = self.matcher.match(f"{pending} {text}")
         if matched is None:
             logger.debug("Phrase did not match any command: '%s'", text)
+            # Only the last piece is kept - chaining more would let ordinary
+            # chatter slowly assemble into a command.
+            self._pending_text = text
+            self._pending_since = now
             return
+        self._pending_text = ""
 
         command, params = matched
 

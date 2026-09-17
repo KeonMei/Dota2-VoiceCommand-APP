@@ -8,6 +8,14 @@ speech:
   # Download the model: https://alphacephei.com/vosk/models (vosk-model-small-ru-0.22
   # for speed, vosk-model-ru-0.42 for accuracy).
   model_path: "models/vosk-model-small-ru-0.22"
+  # Recognize only the words used by commands (phrases in commands.yaml plus
+  # role synonyms); any other speech comes out as "unknown" and is ignored.
+  # Much more accurate for commands than free recognition. Words the model
+  # doesn't know (e.g. "мидер") can't be heard at all - they're listed in the
+  # log at startup; use a known form ("мид", "мида") in synonyms instead.
+  restrict_vocabulary: true
+  # Additional words to allow in restricted mode without adding a phrase.
+  extra_words: []
   sample_rate: 16000
   # Input audio device index. null = system default device.
   input_device: null
@@ -129,24 +137,25 @@ feedback:
 roles:
   carry:
     label: "Керри"
-    synonyms: ["керри", "кэрри", "карри", "кери", "оффкор", "первая позиция", "позиция один", "первый",
-               "единица"]
+    synonyms: ["керри", "кэрри", "карри", "кери", "кэри", "оффкор", "первая позиция", "первую позицию",
+               "позиция один", "первый", "единица", "единицу"]
   mid:
     label: "Мидер"
-    synonyms: ["мидер", "мид", "миддер", "мидлейн", "центр", "вторая позиция", "позиция два", "второй",
-               "двойка"]
+    synonyms: ["мидер", "мид", "мида", "миду", "миде", "мидл", "мидлер", "миддер", "центр",
+               "вторая позиция", "вторую позицию", "позиция два", "второй", "двойка", "двойку"]
   offlane:
     label: "Оффлейнер"
-    synonyms: ["хард", "оффлейнер", "офлейнер", "офлейн", "оффлейн", "хардлейн", "третья позиция",
-               "позиция три", "третий", "тройка"]
+    synonyms: ["хард", "харду", "оффлейнер", "оффлейн", "офлейн", "оффлайн", "офлайн", "хардлейн",
+               "третья позиция", "третью позицию", "позиция три", "третий", "тройка", "тройку"]
   support:
     label: "Поддержка"
-    synonyms: ["поддержка", "саппорт", "сапорт", "софт", "софт саппорт", "четвертая позиция",
-               "позиция четыре", "четвертый", "четверка"]
+    synonyms: ["поддержка", "поддержку", "саппорт", "саппорта", "суппорт", "суппорта", "софт",
+               "софт саппорт", "четвертая позиция", "четвертую позицию", "позиция четыре", "четвертый",
+               "четверка", "четверку"]
   hard_support:
     label: "Полная поддержка"
-    synonyms: ["полная поддержка", "хард саппорт", "хардсаппорт", "хард сапорт", "пятая позиция",
-               "позиция пять", "пятый", "пятерка"]
+    synonyms: ["полная поддержка", "полную поддержку", "хард саппорт", "хард суппорт", "хардсаппорт",
+               "пятая позиция", "пятую позицию", "позиция пять", "пятый", "пятерка", "пятерку"]
 
 # Normal-game modes, in the order they're listed in Dota 2. The key is the
 # mode id used in template filenames: templates/mode_<id>.png (checkbox +

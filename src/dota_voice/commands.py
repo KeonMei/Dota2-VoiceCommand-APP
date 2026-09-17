@@ -15,7 +15,9 @@ _SPACE_RE = re.compile(r"\s+")
 # token_set_ratio scores 100 whenever the spoken words are a subset of a
 # phrase, so "обычная игра" alone would fully match "обычная игра турбо".
 # Every meaningful phrase word must therefore also be (fuzzily) present in
-# what was said; very short words ("на") are too noisy to require.
+# what was said, in the phrase's order ("мида рейтинг" from "какой у тебя
+# рейтинг" is not "рейтинг на мида"); very short words ("на") are too noisy
+# to require.
 _TOKEN_MATCH_THRESHOLD = 75
 _MIN_REQUIRED_TOKEN_LEN = 3
 
@@ -29,10 +31,15 @@ def normalize(text: str) -> str:
 
 def covers_phrase(phrase_norm: str, spoken_norm: str) -> bool:
     spoken_tokens = spoken_norm.split()
+    position = 0
     for token in phrase_norm.split():
         if len(token) < _MIN_REQUIRED_TOKEN_LEN:
             continue
-        if not any(fuzz.ratio(token, spoken) >= _TOKEN_MATCH_THRESHOLD for spoken in spoken_tokens):
+        for i in range(position, len(spoken_tokens)):
+            if fuzz.ratio(token, spoken_tokens[i]) >= _TOKEN_MATCH_THRESHOLD:
+                position = i + 1
+                break
+        else:
             return False
     return True
 

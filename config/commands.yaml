@@ -56,6 +56,11 @@
 #                        after the others finish. Don't put notify steps or
 #                        two UI-clicking steps in different branches.
 #
+# Phrases are matched fuzzily, but every word of a phrase must be heard, in
+# the phrase's order. With speech.restrict_vocabulary on, the recognizer only
+# knows the words used here - words missing from the speech model are logged
+# at startup and can't be recognized.
+#
 # Step fields can use the {role} placeholder - it is substituted from the
 # parameter extracted by the command matcher (see role_param).
 #
