@@ -121,25 +121,32 @@ feedback:
   log_file: "logs/app.log"
   log_level: "INFO"
 
-# Roles and their voice synonyms - used by the command matcher.
-# The key is the canonical role id, substituted into template filenames
+# Roles and their voice synonyms - used by the command
+# matcher. "ё" and "е" are treated as the same letter. When a phrase fits
+# several synonyms equally well, the longer one wins ("хард саппорт" beats
+# "хард"). The key is the canonical role id, substituted into template filenames
 # (templates/role_<id>.png) and into the executor's commands.
 roles:
   carry:
     label: "Керри"
-    synonyms: ["керри", "кэрри", "карри", "carry", "первая позиция", "1 позиция", "оффкор"]
+    synonyms: ["керри", "кэрри", "карри", "кери", "оффкор", "первая позиция", "позиция один", "первый",
+               "единица"]
   mid:
     label: "Мидер"
-    synonyms: ["мидер", "мид", "миддер", "middle", "вторая позиция", "2 позиция"]
+    synonyms: ["мидер", "мид", "миддер", "мидлейн", "центр", "вторая позиция", "позиция два", "второй",
+               "двойка"]
   offlane:
     label: "Оффлейнер"
-    synonyms: ["хард", "оффлейнер", "офлейн", "оффлейн", "хардлейн", "третья позиция", "3 позиция", "тройка"]
+    synonyms: ["хард", "оффлейнер", "офлейнер", "офлейн", "оффлейн", "хардлейн", "третья позиция",
+               "позиция три", "третий", "тройка"]
   support:
     label: "Поддержка"
-    synonyms: ["поддержка", "саппорт", "софт", "софт саппорт", "четвертая позиция", "4 позиция", "четверка", "читвёрка"]
+    synonyms: ["поддержка", "саппорт", "сапорт", "софт", "софт саппорт", "четвертая позиция",
+               "позиция четыре", "четвертый", "четверка"]
   hard_support:
     label: "Полная поддержка"
-    synonyms: ["полная поддержка", "хард саппорт", "хардсаппорт", "пятая позиция", "5 позиция", "пятерка", "питёрка"]
+    synonyms: ["полная поддержка", "хард саппорт", "хардсаппорт", "хард сапорт", "пятая позиция",
+               "позиция пять", "пятый", "пятерка"]
 
 # Normal-game modes, in the order they're listed in Dota 2. The key is the
 # mode id used in template filenames: templates/mode_<id>.png (checkbox +

@@ -26,7 +26,9 @@ class Application:
         self.notifier.warm_up()
         self.matcher = CommandMatcher(self.config, self.commands_config)
         self.executor = ActionExecutor(self.config, self.notifier)
-        self.listener = SpeechListener(self.config, on_text=self._on_text_recognized)
+        self.listener = SpeechListener(
+            self.config, on_text=self._on_text_recognized, commands_config=self.commands_config
+        )
         self.tray = TrayApp(
             self.config,
             self.listener,

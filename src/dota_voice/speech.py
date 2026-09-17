@@ -7,18 +7,76 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+import itertools
+
 import sounddevice as sd
 import vosk
 
-from .config import Config
+from .config import CommandsConfig, Config
 
 logger = logging.getLogger("dota_voice.speech")
 
 vosk.SetLogLevel(-1)
 
+_UNKNOWN = "[unk]"
+
+
+def _in_vocabulary(model: vosk.Model, word: str) -> bool:
+    return model.vosk_model_find_word(word) >= 0
+
+
+def _vocabulary_form(model: vosk.Model, word: str) -> str | None:
+    """The model's spelling of a word - it spells "ё" out, while phrases in
+    the configs are usually typed with "е"."""
+    if _in_vocabulary(model, word):
+        return word
+    spots = [i for i, ch in enumerate(word) if ch == "е"][:4]
+    for count in range(1, len(spots) + 1):
+        for chosen in itertools.combinations(spots, count):
+            variant = "".join("ё" if i in chosen else ch for i, ch in enumerate(word))
+            if _in_vocabulary(model, variant):
+                return variant
+    return None
+
+
+def command_words(config: Config, commands_config: CommandsConfig) -> set[str]:
+    from .commands import normalize
+
+    words: set[str] = set()
+    roles = config.get("roles", default={}) or {}
+    for command in commands_config.commands:
+        for phrase in command.get("phrases", []):
+            if "{role}" in phrase:
+                for role in roles.values():
+                    for synonym in role.get("synonyms", []):
+                        words.update(normalize(phrase.replace("{role}", synonym)).split())
+            else:
+                words.update(normalize(phrase).split())
+    words.update(normalize(" ".join(config.get("speech", "extra_words", default=[]) or [])).split())
+    return words
+
+
+def build_grammar(config: Config, commands_config: CommandsConfig, model: vosk.Model) -> str:
+    """Vosk grammar limited to the words the commands use, plus "[unk]" for
+    everything else. The recognizer then can't turn "турбо" into a similar
+    everyday word, and unrelated speech comes out as [unk]."""
+    grammar: set[str] = set()
+    skipped = []
+    for word in sorted(command_words(config, commands_config)):
+        form = _vocabulary_form(model, word)
+        if form is None:
+            skipped.append(word)
+        else:
+            grammar.add(form)
+    if skipped:
+        logger.info(
+            "Not in the speech model's vocabulary (matched only via similar words): %s", ", ".join(skipped)
+        )
+    return json.dumps(sorted(grammar) + [_UNKNOWN], ensure_ascii=False)
+
 
 class SpeechListener:
-    def __init__(self, config: Config, on_text: Callable[[str], None]):
+    def __init__(self, config: Config, on_text: Callable[[str], None], commands_config: CommandsConfig | None = None):
         self._on_text = on_text
         self._sample_rate = int(config.get("speech", "sample_rate", default=16000))
         self._device = config.get("speech", "input_device", default=None)
@@ -32,6 +90,10 @@ class SpeechListener:
             )
 
         self._model = vosk.Model(str(model_path))
+        self._grammar: str | None = None
+        if commands_config is not None and config.get("speech", "restrict_vocabulary", default=True):
+            self._grammar = build_grammar(config, commands_config, self._model)
+            logger.info("Recognition limited to %d command words.", len(json.loads(self._grammar)) - 1)
         self._audio_queue: queue.Queue[bytes] = queue.Queue()
         self._stream: sd.RawInputStream | None = None
         self._thread: threading.Thread | None = None
@@ -87,7 +149,10 @@ class SpeechListener:
         self._audio_queue.put(bytes(indata))
 
     def _recognize_loop(self) -> None:
-        recognizer = vosk.KaldiRecognizer(self._model, self._sample_rate)
+        if self._grammar is not None:
+            recognizer = vosk.KaldiRecognizer(self._model, self._sample_rate, self._grammar)
+        else:
+            recognizer = vosk.KaldiRecognizer(self._model, self._sample_rate)
         while self._running.is_set():
             try:
                 data = self._audio_queue.get(timeout=0.5)
@@ -99,7 +164,7 @@ class SpeechListener:
 
             if recognizer.AcceptWaveform(data):
                 result = json.loads(recognizer.Result())
-                text = (result.get("text") or "").strip()
+                text = " ".join(w for w in (result.get("text") or "").split() if w != _UNKNOWN)
                 if text:
                     logger.debug("Recognized: %s", text)
                     try:

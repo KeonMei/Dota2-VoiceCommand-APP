@@ -21,7 +21,7 @@ _MIN_REQUIRED_TOKEN_LEN = 3
 
 
 def normalize(text: str) -> str:
-    text = text.lower().strip()
+    text = text.lower().strip().replace("ё", "е")
     text = _PUNCT_RE.sub(" ", text)
     text = _SPACE_RE.sub(" ", text).strip()
     return text
