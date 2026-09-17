@@ -9,8 +9,9 @@ from .config import CommandsConfig, Config
 from .logging_setup import setup_logging
 from .notify import Notifier
 from .speech import SpeechListener
-from .tray import TrayApp
+from .tray import TrayApp, make_icon_image
 from .vision import get_screen_resolution
+from .window import MainWindow
 
 logger = logging.getLogger("dota_voice.app")
 
@@ -26,7 +27,20 @@ class Application:
         self.matcher = CommandMatcher(self.config, self.commands_config)
         self.executor = ActionExecutor(self.config, self.notifier)
         self.listener = SpeechListener(self.config, on_text=self._on_text_recognized)
-        self.tray = TrayApp(self.config, self.listener)
+        self.tray = TrayApp(
+            self.config,
+            self.listener,
+            on_show_window=lambda: self.window.request_show(),
+            on_exit=lambda: self.window.request_quit(),
+        )
+        icon_file = self.config.resolve_path("assets/app.ico")
+        self.window = MainWindow(
+            self.listener,
+            on_state_changed=self.tray.refresh,
+            hotkey=str(self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l")),
+            icon_image=make_icon_image(True),
+            icon_file=icon_file,
+        )
 
         self._busy_lock = threading.Lock()
         self._check_resolution()
@@ -89,8 +103,10 @@ class Application:
     def run(self) -> None:
         logger.info("Starting Dota2 Voice Command Assistant")
         self.listener.start()
+        self.tray.start()
         try:
-            self.tray.run()
+            self.window.run()
         finally:
             self.listener.stop()
+            self.tray.stop()
             logger.info("Application stopped.")

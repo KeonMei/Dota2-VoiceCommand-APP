@@ -18,7 +18,8 @@ import win32con  # noqa: E402
 import win32event  # noqa: E402
 import winerror  # noqa: E402
 
-APP_TITLE = "Dota2 Voice Assistant"
+from dota_voice.window import APP_TITLE, signal_show_window  # noqa: E402
+
 _MUTEX_NAME = "Local\\Dota2VoiceCommandAssistant"
 
 
@@ -30,7 +31,8 @@ def main() -> None:
     # Two instances would both listen to the mic and run every command twice.
     mutex = win32event.CreateMutex(None, False, _MUTEX_NAME)  # noqa: F841 - held for the process lifetime
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
-        _message_box("Ассистент уже запущен - его значок в трее.", win32con.MB_ICONINFORMATION)
+        # Bring the running instance's window up instead of starting another.
+        signal_show_window()
         return
 
     try:

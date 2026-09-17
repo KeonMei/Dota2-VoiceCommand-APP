@@ -161,11 +161,14 @@ if you move the project folder):
 python tools/create_shortcut.py
 ```
 
-Only one instance runs at a time — opening the shortcut again just says it's
-already running. If startup fails, a message box shows the error and the
+Only one instance runs at a time — opening the shortcut again just brings
+the running assistant's window up. If startup fails, a message box shows the error and the
 full traceback is saved to `logs/startup_error.log`.
 
-A tray icon appears (a green dot means listening is active). The
+A small window opens with one round button that turns listening on/off
+(green and pulsing = listening). Closing the window keeps the assistant
+running in the tray; click the tray icon to reopen it, or use its "Выход"
+item to quit. A tray icon also appears (a green dot means listening is active). The
 `Ctrl+Alt+L` hotkey (configurable at `config.yaml -> hotkeys.toggle_listening`)
 temporarily pauses/resumes command recognition without killing the audio
 stream. If the hotkey doesn't fire, try running `python main.py` from an
