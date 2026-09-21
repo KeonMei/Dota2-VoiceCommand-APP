@@ -187,6 +187,8 @@ changes):
 | `ranked_roles_tab_inactive` | The same header while it's **closed** (normal-game section open) |
 | `role_<id>` / `role_<id>_selected` | Each role icon in its unselected and selected/highlighted state — `<id>` is `carry`, `mid`, `offlane`, `support`, `hard_support` |
 | `find_match_button`         | The button that confirms/starts the matchmaking search  |
+| `search_in_progress` | The "ПОИСК ИГРЫ" bar shown while a search is running |
+| `cancel_search_button` | The small red cross inside that bar (the only thing that cancels it) |
 
 A section header is clicked only when its closed look matches, so a
 command never toggles a section that's already open. Two states per role are needed because Dota's role icons are toggles, not an
@@ -240,6 +242,14 @@ over the expanded list speeds up the search.
 Only `turbo` and `all_pick` have voice commands today; for another mode, copy
 the `normal_all_pick` entry in `commands.yaml` and change its `id`, `phrases`
 and `params` (`mode: single_draft`, etc.) — no code changes needed.
+
+A button under the mouse cursor is highlighted and no longer matches its
+plain crop - which happens whenever one click leaves the cursor where the
+next button appears ("Играть" -> "Найти игру"). The assistant then steps the
+cursor aside and looks again. To avoid even that movement, calibrate the
+highlighted look as `<name>_hover.png` (e.g. `find_match_button_hover`, with
+the cursor resting on the button): any `<name>_hover*.png` crops are matched
+alongside the plain one.
 
 If an element isn't found, `logs/app.log` shows which template and score
 failed to match — recalibrate it more tightly, lower `vision.match_threshold`

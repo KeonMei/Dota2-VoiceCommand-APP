@@ -70,6 +70,7 @@ class ActionExecutor:
             "parallel": self._h_parallel,
             "select_exclusive_mode": self._h_select_exclusive_mode,
             "open_section": self._h_open_section,
+            "cancel_search": self._h_cancel_search,
         }
 
     def request_stop(self) -> None:
@@ -184,6 +185,34 @@ class ActionExecutor:
             return None
         region = self.config.get("vision", f"region_{region_key}", default=None)
         return tuple(region) if region else None
+
+    def _uncover_cursor(self, element_size: tuple[int, int] | None = None) -> bool:
+        """The cursor left on a button highlights it, and a highlighted button
+        no longer matches its template - which happens a lot, because clicking
+        "Играть" leaves the cursor exactly where "Найти игру" then appears.
+        Moves the cursor out of the way once, so the next look sees the plain
+        button. Returns whether it moved."""
+        screen_w, screen_h = vision.get_screen_resolution()
+        x, y = pyautogui.position()
+        park = self.config.get("automation", "cursor_park", default=None)
+        if park:
+            target = (int(park[0]), int(park[1]))
+        else:
+            # Just off the element, not across the screen. The step has to
+            # clear the element itself, so it is at least half its width.
+            nudge = int(self.config.get("automation", "cursor_nudge_px", default=120))
+            if element_size:
+                nudge = max(nudge, element_size[0] // 2 + 20)
+            target = (x - nudge if x - nudge >= 1 else x + nudge, y)
+            if not 1 <= target[0] <= screen_w - 2:
+                step = max(nudge, (element_size[1] // 2 + 20) if element_size else nudge)
+                target = (x, y - step if y - step >= 1 else y + step)
+        target = (max(1, min(screen_w - 2, target[0])), max(1, min(screen_h - 2, target[1])))
+        if abs(x - target[0]) < 5 and abs(y - target[1]) < 5:
+            return False
+        logger.debug("Nudging the cursor off the UI (it may be highlighting the element).")
+        pyautogui.moveTo(target[0], target[1], duration=self.move_duration, tween=self.move_tween)
+        return True
 
     def _move_and_click(self, x: int, y: int) -> None:
         pyautogui.moveTo(x, y, duration=self.move_duration, tween=self.move_tween)
@@ -404,19 +433,49 @@ class ActionExecutor:
         template_path = self.templates_dir / f"{template_name}.png"
         region = self._region_for(step)
 
+        # The cursor left on a button highlights it, so the plain crop stops
+        # matching. Optional <name>_hover*.png crops of that highlighted look
+        # (any number, e.g. from `calibrate.py --burst`) are checked too, which
+        # saves moving the cursor at all.
+        hover_paths = sorted(self.templates_dir.glob(f"{template_name}_hover*.png"))
         retries = self._retries(step)
-        for attempt in range(1, retries + 1):
+        uncovered = False
+        attempt = 0
+        while attempt < retries:
+            attempt += 1
             if self._stop_event.is_set():
                 return
             match = vision.find_template(template_path, threshold=self.match_threshold, region=region)
+            for hover_path in hover_paths:
+                if match is not None:
+                    break
+                match = vision.find_template(hover_path, threshold=self.match_threshold, region=region)
+                if match is not None:
+                    logger.debug("Matched the hovered look of '%s'.", template_name)
             if match is not None:
                 self._move_and_click(match.center_x, match.center_y)
                 return
             logger.debug("Attempt %d/%d: template '%s' not found", attempt, retries, template_name)
+            # Moving the cursor off the element is a free extra look, not one
+            # of the retries.
+            if not uncovered:
+                uncovered = self._uncover_cursor(vision.template_size(template_path))
+                if uncovered:
+                    attempt -= 1
+                    continue
             self._interruptible_sleep(self.retry_delay)
 
         if self._stop_event.is_set():
             return
+
+        # The score tells a missing element ("not on screen at all") apart from
+        # a stale template ("there, but no longer looks like the crop").
+        best = vision.best_match(template_path, region)
+        if best is not None:
+            logger.error(
+                "Template '%s' best score was %.3f (threshold %.2f) at (%d, %d)",
+                template_name, best.score, self.match_threshold, best.center_x, best.center_y,
+            )
 
         fallback = step.get("fallback_point")
         if fallback:
@@ -459,7 +518,10 @@ class ActionExecutor:
 
         target_base_path = self.templates_dir / f"role_{target_role}.png"
         retries = self._retries(step)
-        for attempt in range(1, retries + 1):
+        uncovered = False
+        attempt = 0
+        while attempt < retries:
+            attempt += 1
             if self._stop_event.is_set():
                 return
             match = vision.find_template(target_base_path, threshold=self.match_threshold, region=region)
@@ -467,6 +529,13 @@ class ActionExecutor:
                 self._move_and_click(match.center_x, match.center_y)
                 return
             logger.debug("Attempt %d/%d: role icon '%s' not found", attempt, retries, target_role)
+            # Moving the cursor off the element is a free extra look, not one
+            # of the retries.
+            if not uncovered:
+                uncovered = self._uncover_cursor(vision.template_size(target_base_path))
+                if uncovered:
+                    attempt -= 1
+                    continue
             self._interruptible_sleep(self.retry_delay)
 
         if self._stop_event.is_set():
@@ -668,6 +737,59 @@ class ActionExecutor:
             f"Не найден заголовок раздела '{step['template']}' ни в открытом, ни в закрытом виде "
             f"(проверьте шаблоны {step['template']}.png / {step['inactive_template']}.png)"
         )
+
+    def _h_cancel_search(self, step: dict, context: dict) -> None:
+        """While Dota is searching, a "ПОИСК ИГРЫ" bar replaces the play
+        controls and the mode/role choices are locked, so a new command can't
+        do anything until that search is cancelled. Only the small red cross
+        inside the bar cancels it, so the bar is what's detected
+        (search_in_progress.png) and the cross is looked for inside it
+        (cancel_search_button.png) - a small red icon would match all over the
+        screen otherwise. Does nothing when no search is running or the
+        templates aren't calibrated."""
+        bar_path = self.templates_dir / f"{step.get('template', 'search_in_progress')}.png"
+        cross_path = self.templates_dir / f"{step.get('cancel_template', 'cancel_search_button')}.png"
+        if not bar_path.exists() or not cross_path.exists():
+            logger.debug(
+                "%s / %s not calibrated - a running search can't be detected.", bar_path.name, cross_path.name
+            )
+            return
+
+        region = self._region_for(step)
+        bar = vision.find_template(bar_path, threshold=self.match_threshold, region=region)
+        if bar is None:
+            logger.debug("No search in progress.")
+            return
+
+        logger.info("A search is already running - cancelling it before starting a new one.")
+        pad = 10
+        bar_area = (
+            bar.center_x - bar.width // 2 - pad,
+            bar.center_y - bar.height // 2 - pad,
+            bar.width + 2 * pad,
+            bar.height + 2 * pad,
+        )
+        cross = vision.find_template(cross_path, threshold=self.match_threshold, region=bar_area)
+        if cross is None:
+            raise ActionError(
+                "Идёт поиск игры, но кнопка отмены не найдена "
+                "(проверьте шаблоны search_in_progress.png / cancel_search_button.png)"
+            )
+
+        self._move_and_click(cross.center_x, cross.center_y)
+        self._interruptible_sleep(float(self.config.get("delays", "between_ui_clicks", default=0.3)) + 0.5)
+
+        retries = self._retries(step)
+        for _ in range(retries):
+            if self._stop_event.is_set():
+                return
+            if vision.find_template(bar_path, threshold=self.match_threshold, region=region) is None:
+                return
+            self._interruptible_sleep(self.retry_delay)
+
+        if self._stop_event.is_set():
+            return
+        raise ActionError("Не удалось отменить текущий поиск игры")
 
     def _h_click_point(self, step: dict, context: dict) -> None:
         x, y = step["point"]

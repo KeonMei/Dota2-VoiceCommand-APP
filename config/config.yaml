@@ -102,6 +102,15 @@ automation:
   #   ease_out     - moves quickly then eases into the target
   #   ease_in      - starts slow then accelerates into the target
   move_tween: "ease_in_out"
+  # A hovered button is highlighted and stops matching its template (clicking
+  # "Играть" leaves the cursor right where "Найти игру" appears), so after a
+  # miss the cursor steps aside by this many pixels and the element is looked
+  # for once more. The step is widened when needed so it clears the element
+  # itself. Only happens when something wasn't found.
+  cursor_nudge_px: 120
+  # Fixed spot to move the cursor to instead of a step aside, e.g. [960, 540].
+  # null = step aside by cursor_nudge_px.
+  cursor_park: null
 
 feedback:
   tts_enabled: true

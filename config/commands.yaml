@@ -9,7 +9,11 @@
 #   wait_window        - wait for a window whose title contains a substring.
 #   sleep              - pause for a number of seconds.
 #   open_url_in_chrome - open a URL in a new Chrome tab.
-#   click_template     - find a template on screen (OpenCV) and click its center.
+#   click_template     - find a template on screen (OpenCV) and click its
+#                        center. If templates/<name>_hover*.png exist,
+#                        they are matched too - the cursor left on a
+#                        button highlights it, and those crops let it be
+#                        recognized without moving the cursor first.
 #   click_point        - click fixed coordinates (fallback).
 #   key_press          - press a key/combo (pyautogui hotkey).
 #   notify             - speak/log a message to the user.
@@ -43,6 +47,15 @@
 #                        the target is ticked. Needs mode_<id>.png and
 #                        mode_<id>_selected.png (checkbox + label) for every
 #                        listed mode.
+#   cancel_search      - if Dota is already searching for a match (the
+#                        "ПОИСК ИГРЫ" bar is up and the mode/role choices are
+#                        locked), clicks the red cross that cancels it and
+#                        waits for the bar to disappear, so the command can
+#                        set its own mode/role. Detects the bar with
+#                        search_in_progress.png and looks for the cross
+#                        (cancel_search_button.png) inside it. Does nothing
+#                        when no search is running or either template is
+#                        missing.
 #   open_section       - opens a play-menu section only if it's closed:
 #                        `template` is the header as it looks while the
 #                        section is open, `inactive_template` while it's
@@ -178,6 +191,13 @@ commands:
       - type: sleep
         seconds_key: between_ui_clicks
 
+      - type: cancel_search
+        retries: 4
+        optional: true
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
       # Clicks the "Рейтинговая игра" header only if that section is closed
       # (e.g. the normal-game section is open instead).
       - type: open_section
@@ -238,6 +258,13 @@ commands:
         retries: 2
         optional: true
         region_key: play_button
+
+      - type: sleep
+        seconds_key: between_ui_clicks
+
+      - type: cancel_search
+        retries: 4
+        optional: true
 
       - type: sleep
         seconds_key: between_ui_clicks

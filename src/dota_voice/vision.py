@@ -47,6 +47,14 @@ def _load_template(template_path: Path) -> np.ndarray | None:
     return template
 
 
+def template_size(template_path: Path) -> tuple[int, int] | None:
+    """(width, height) of a template file, or None if it can't be read."""
+    template = _load_template(template_path)
+    if template is None:
+        return None
+    return template.shape[1], template.shape[0]
+
+
 def best_match(
     template_path: Path,
     region: tuple[int, int, int, int] | None = None,

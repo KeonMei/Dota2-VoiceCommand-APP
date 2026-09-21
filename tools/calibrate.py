@@ -11,6 +11,9 @@ Usage:
     python tools/calibrate.py role_support
     python tools/calibrate.py role_hard_support
     python tools/calibrate.py find_match_button
+    python tools/calibrate.py find_match_button_hover  (same button under the cursor)
+    python tools/calibrate.py search_in_progress     (the bar shown while searching)
+    python tools/calibrate.py cancel_search_button   (the red cross inside that bar)
     python tools/calibrate.py normal_game_tab             (header, section open)
     python tools/calibrate.py normal_game_tab_inactive    (header, section closed)
     python tools/calibrate.py modes_show_all_collapsed
