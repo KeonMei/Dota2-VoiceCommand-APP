@@ -84,17 +84,19 @@ class ActionExecutor:
             time.sleep(chunk)
             remaining -= chunk
 
-    def run_steps(self, steps: list[dict], context: dict[str, Any]) -> bool:
+    def run_steps(self, steps: list[dict], context: dict[str, Any]) -> str:
+        """Returns "done", "stopped" (interrupted by a stop request) or "failed"."""
         self._stop_event.clear()
         try:
             completed = self._run_sequence(steps, context)
         except ActionError as exc:
             self.notifier.beep(ok=False)
             self.notifier.speak(f"Не удалось выполнить шаг: {exc}")
-            return False
+            return "failed"
         if not completed:
             logger.info("Step sequence stopped by voice command.")
-        return completed
+            return "stopped"
+        return "done"
 
     def _run_sequence(self, steps: list[dict], context: dict[str, Any]) -> bool:
         """Runs steps in order. Returns False if interrupted by a stop request,
