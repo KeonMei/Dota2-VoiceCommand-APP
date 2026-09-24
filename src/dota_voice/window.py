@@ -3,14 +3,18 @@ from __future__ import annotations
 import ctypes
 import logging
 import math
+import os
+import subprocess
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from typing import Callable
 
 import win32event
 from PIL import ImageTk
 
+from . import ui_art
 from .speech import SpeechListener
 
 logger = logging.getLogger("dota_voice.window")
@@ -20,18 +24,41 @@ APP_TITLE = "Dota2 Voice Assistant"
 # instead of starting another instance; the running window then shows itself.
 SHOW_WINDOW_EVENT = "Local\\Dota2VoiceAssistantShowWindow"
 
-BG = "#0f1115"
-TEXT = "#e8eaed"
-MUTED = "#7d838d"
-ACCENT = "#d8412f"
+TEXT = "#eceef1"
+SUBTLE = "#b4b9c1"
+MUTED = "#80868f"
+ACCENT = "#e5402f"
 ON = "#3ddc84"
-ON_DIM = "#1d5c3c"
-OFF = "#4a4f58"
-OFF_DIM = "#23272e"
+FAIL = "#f06a5a"
 FONT = "Segoe UI"
+ICON_FONT = "Segoe Fluent Icons"
 
-_BUTTON_SIZE = 170
-_POLL_MS = 100
+WIDTH, HEIGHT = 470, 712
+MARGIN = 18
+MIC_CENTER_Y = 214
+MIC_RING_RADIUS = 66
+MIC_BOX = 200
+WAVE_Y, WAVE_BARS, WAVE_STEP, WAVE_MAX = 382, 33, 6, 15
+CARD = (MARGIN, 408, WIDTH - MARGIN, 470)
+TILE_H, TILE_GAP = 40, 10
+TILES_Y = 518
+SEPARATOR_Y = 648
+
+# Placeholder icons from Windows 11's icon font until custom ones are drawn.
+TRY_SAYING = [
+    ("", "Запусти турбо"),
+    ("", "Запусти олл пик"),
+    ("", "Рейтинг на мид"),
+    ("", "Базовый минимум"),
+]
+
+_TICK_MS = 33
+_COMMAND_STATUS = {
+    "running": ("Выполняется…", MUTED),
+    "done": ("Команда выполнена", SUBTLE),
+    "stopped": ("Остановлена", MUTED),
+    "failed": ("Не удалось выполнить", FAIL),
+}
 
 
 def signal_show_window() -> None:
@@ -40,9 +67,9 @@ def signal_show_window() -> None:
 
 
 class MainWindow:
-    """A small always-available control window: app name, one round button
-    that toggles listening and shows whether it's on. Closing the window only
-    hides it - the assistant keeps running in the tray."""
+    """The control window: a big round button that toggles listening, a live
+    microphone level, the last command's outcome and example phrases. Closing
+    the window only hides it - the assistant keeps running in the tray."""
 
     def __init__(
         self,
@@ -51,15 +78,24 @@ class MainWindow:
         hotkey: str,
         icon_image,
         icon_file: Path | None = None,
+        settings_file: Path | None = None,
     ):
         self.listener = listener
         self._on_state_changed = on_state_changed
+        self._settings_file = settings_file
         self._show_requested = threading.Event()
         self._quit_requested = threading.Event()
         self._show_event = win32event.CreateEvent(None, False, False, SHOW_WINDOW_EVENT)
-        self._shown_state: bool | None = None
-        self._hover = False
+        self._mic_hover = False
+        self._gear_hover = False
         self._phase = 0.0
+        self._level = 0.0
+        self._shown_enabled: bool | None = None
+        self._shown_mic_key: tuple | None = None
+        # (spoken text, outcome) - written from command threads, read by _tick.
+        self._command: tuple[str, str] | None = None
+        self._shown_command: tuple[str, str] | None = None
+        self._spinner_index = 0
 
         try:
             # Own taskbar entry/icon instead of being grouped under python.exe.
@@ -69,64 +105,119 @@ class MainWindow:
 
         self.root = tk.Tk()
         self.root.title(APP_TITLE)
-        self.root.configure(bg=BG)
+        self.root.configure(bg=ui_art.color(ui_art.BG))
         self.root.resizable(False, False)
         self._set_icon(icon_image, icon_file)
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
+        self.root.bind("<Escape>", lambda _e: self.hide())
 
         self._build(hotkey)
-        self._center(340, 450)
+        self._center(WIDTH, HEIGHT)
         self._dark_title_bar()
         self._tick()
 
     # --- layout -------------------------------------------------------------
 
+    def _tile_rects(self) -> list[tuple[int, int, int, int]]:
+        tile_w = (WIDTH - 2 * MARGIN - TILE_GAP) // 2
+        rects = []
+        for i in range(len(TRY_SAYING)):
+            col, row = i % 2, i // 2
+            x0 = MARGIN + col * (tile_w + TILE_GAP)
+            y0 = TILES_Y + row * (TILE_H + TILE_GAP)
+            rects.append((x0, y0, x0 + tile_w, y0 + TILE_H))
+        return rects
+
     def _build(self, hotkey: str) -> None:
-        tk.Label(self.root, text="D O T A   2", bg=BG, fg=ACCENT, font=(FONT, 10, "bold")).pack(pady=(30, 0))
-        tk.Label(self.root, text="Voice Assistant", bg=BG, fg=TEXT, font=(FONT, 20, "bold")).pack()
+        c = self.canvas = tk.Canvas(self.root, width=WIDTH, height=HEIGHT, highlightthickness=0, bd=0)
+        c.pack()
+        cx = WIDTH / 2
+        tiles = self._tile_rects()
+        panels = [(*CARD, 10)] + [(*t, 8) for t in tiles]
+        background = ui_art.render_background((WIDTH, HEIGHT), panels, SEPARATOR_Y)
+        self._images = {"background": ImageTk.PhotoImage(background)}
+        c.create_image(0, 0, image=self._images["background"], anchor="nw")
 
-        pad = 24
-        size = _BUTTON_SIZE + pad * 2
-        self.canvas = tk.Canvas(self.root, width=size, height=size, bg=BG, highlightthickness=0, cursor="hand2")
-        self.canvas.pack(pady=(26, 8))
-        center = size / 2
-        r = _BUTTON_SIZE / 2
-        self._glow = self.canvas.create_oval(center - r - 14, center - r - 14, center + r + 14, center + r + 14, width=0)
-        self._ring = self.canvas.create_oval(center - r, center - r, center + r, center + r, width=4)
-        self._disc = self.canvas.create_oval(center - r + 10, center - r + 10, center + r - 10, center + r - 10, width=0)
-        self._mic = self._draw_mic(center, center)
+        # Header
+        c.create_text(cx, 30, text="D O T A   2", fill=ACCENT, font=(FONT, 11, "bold"))
+        c.create_text(cx, 62, text="Голосовой ассистент", fill=TEXT, font=(FONT, 21, "bold"))
+        c.create_text(cx, 95, text="Управляй запуском и поиском матча", fill=SUBTLE, font=(FONT, 11))
 
-        self.canvas.bind("<Button-1>", lambda _e: self.toggle())
-        self.canvas.bind("<Enter>", lambda _e: self._set_hover(True))
-        self.canvas.bind("<Leave>", lambda _e: self._set_hover(False))
+        # Mic button
+        half = MIC_BOX // 2
+        crop = background.crop((int(cx) - half, MIC_CENTER_Y - half, int(cx) + half, MIC_CENTER_Y + half))
+        self._mic_art = ui_art.MicButtonArt(crop, MIC_RING_RADIUS)
+        self._images["mic"] = ImageTk.PhotoImage(self._mic_art.frame(True, False, 0.0))
+        c.create_image(cx, MIC_CENTER_Y, image=self._images["mic"])
 
-        self.status = tk.Label(self.root, bg=BG, font=(FONT, 12, "bold"))
-        self.status.pack()
-        self.caption = tk.Label(self.root, bg=BG, fg=MUTED, font=(FONT, 9))
-        self.caption.pack(pady=(2, 0))
+        # Status line: dot + word, centered as a group
+        self._status_font = tkfont.Font(family=FONT, size=13, weight="bold")
+        self._images["dot_on"] = ImageTk.PhotoImage(ui_art.dot(ui_art.GREEN, 10, glow=True))
+        self._images["dot_off"] = ImageTk.PhotoImage(ui_art.dot(ui_art.GREY, 10))
+        self._status_dot = c.create_image(0, 324, image=self._images["dot_on"])
+        self._status_text = c.create_text(0, 324, anchor="w", font=self._status_font)
+        self._caption = c.create_text(cx, 350, fill=MUTED, font=(FONT, 10))
 
-        tk.Label(
-            self.root,
-            text=f"{hotkey.title()} — вкл/выкл   ·   закрытое окно остаётся в трее",
-            bg=BG, fg=MUTED, font=(FONT, 8),
-        ).pack(side="bottom", pady=(0, 14))
-
-    def _draw_mic(self, cx: float, cy: float) -> list[int]:
-        c = self.canvas
-        w, h = 13, 22  # half-width of the capsule, half-height of its straight part
-        items = [
-            c.create_oval(cx - w, cy - 34, cx + w, cy - 34 + 2 * w, width=0),
-            c.create_rectangle(cx - w, cy - 34 + w, cx + w, cy - 34 + w + h, width=0),
-            c.create_oval(cx - w, cy - 34 + h, cx + w, cy - 34 + h + 2 * w, width=0),
-            c.create_arc(cx - 24, cy - 22, cx + 24, cy + 24, start=180, extent=180, style="arc", width=4),
-            c.create_line(cx, cy + 24, cx, cy + 36, width=4),
-            c.create_line(cx - 14, cy + 36, cx + 14, cy + 36, width=4, capstyle="round"),
+        # Microphone level
+        x0 = cx - (WAVE_BARS - 1) / 2 * WAVE_STEP
+        self._wave = [
+            c.create_line(x0 + i * WAVE_STEP, WAVE_Y, x0 + i * WAVE_STEP, WAVE_Y, width=3, capstyle="round")
+            for i in range(WAVE_BARS)
         ]
-        return items
+        self._wave_profile = [ui_art.wave_profile(i, WAVE_BARS) for i in range(WAVE_BARS)]
+
+        # Last command card
+        cx0, cy0, cx1, cy1 = CARD
+        c.create_text(cx0 + 16, cy0 + 16, anchor="w", text="П О С Л Е Д Н Я Я   К О М А Н Д А", fill=MUTED, font=(FONT, 7, "bold"))
+        self._phrase_font = tkfont.Font(family=FONT, size=15, weight="bold")
+        self._card_status_font = tkfont.Font(family=FONT, size=10)
+        self._phrase = c.create_text(cx0 + 16, cy0 + 41, anchor="w", font=self._phrase_font)
+        self._card_status = c.create_text(cx1 - 16, cy0 + 41, anchor="e", font=self._card_status_font)
+        self._card_icon = c.create_image(0, cy0 + 41)
+        for kind in ("done", "failed", "stopped"):
+            self._images[f"status_{kind}"] = ImageTk.PhotoImage(ui_art.status_icon(kind))
+        self._spinner = [ImageTk.PhotoImage(f) for f in ui_art.spinner_frames()]
+
+        # Example phrases (not clickable yet)
+        c.create_text(MARGIN + 2, TILES_Y - 22, anchor="w", text="Попробуйте сказать", fill=TEXT, font=(FONT, 14, "bold"))
+        for (icon, label), (x0, y0, x1, y1) in zip(TRY_SAYING, tiles):
+            my = (y0 + y1) / 2
+            c.create_text(x0 + 24, my, text=icon, fill=ACCENT, font=(ICON_FONT, 15))
+            c.create_text(x0 + 46, my, anchor="w", text=label, fill=TEXT, font=(FONT, 11))
+            c.create_text(x1 - 16, my, text="", fill=MUTED, font=(ICON_FONT, 9))
+
+        # "Стоп" hint: square + red word + muted rest, centered as a group
+        stop_y = TILES_Y + 2 * TILE_H + TILE_GAP + 26
+        word_font = tkfont.Font(family=FONT, size=10)
+        rest = " — отменить текущую команду"
+        word = "«Стоп»"
+        total = 14 + 8 + word_font.measure(word) + word_font.measure(rest)
+        left = cx - total / 2
+        self._images["stop_square"] = ImageTk.PhotoImage(ui_art.rounded_square(ui_art.RED, 13, 2))
+        c.create_image(left + 7, stop_y, image=self._images["stop_square"])
+        c.create_text(left + 22, stop_y, anchor="w", text=word, fill=ACCENT, font=word_font)
+        c.create_text(left + 22 + word_font.measure(word), stop_y, anchor="w", text=rest, fill=SUBTLE, font=word_font)
+
+        # Footer
+        foot_y = SEPARATOR_Y + 24
+        self._images["dot_footer"] = ImageTk.PhotoImage(ui_art.dot(ui_art.GREEN, 8, glow=True))
+        c.create_image(MARGIN + 12, foot_y, image=self._images["dot_footer"])
+        c.create_text(MARGIN + 26, foot_y, anchor="w", text="Распознавание офлайн", fill=SUBTLE, font=(FONT, 10))
+        self._gear = c.create_text(WIDTH - MARGIN - 12, foot_y, text="", fill=MUTED, font=(ICON_FONT, 15), tags=("gear",))
+        keys = " + ".join(part.strip().capitalize() for part in hotkey.split("+"))
+        c.create_text(cx, foot_y + 28, text=f"{keys} — вкл / выкл     |     Esc — закрыть", fill=MUTED, font=(FONT, 9))
+
+        c.bind("<Motion>", lambda e: self._set_hover(self._over_mic(e.x, e.y), self._gear_hover))
+        c.bind("<Leave>", lambda _e: self._set_hover(False, False))
+        c.bind("<Button-1>", self._on_click)
+        c.tag_bind("gear", "<Enter>", lambda _e: self._set_hover(self._mic_hover, True))
+        c.tag_bind("gear", "<Leave>", lambda _e: self._set_hover(self._mic_hover, False))
+
+        self._render_command()
 
     def _center(self, width: int, height: int) -> None:
         x = (self.root.winfo_screenwidth() - width) // 2
-        y = (self.root.winfo_screenheight() - height) // 3
+        y = max(0, (self.root.winfo_screenheight() - height) // 3)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     def _set_icon(self, icon_image, icon_file: Path | None) -> None:
@@ -149,6 +240,35 @@ class MainWindow:
         except Exception:
             pass
 
+    # --- input --------------------------------------------------------------
+
+    def _over_mic(self, x: int, y: int) -> bool:
+        return math.hypot(x - WIDTH / 2, y - MIC_CENTER_Y) <= MIC_RING_RADIUS + 4
+
+    def _set_hover(self, mic: bool, gear: bool) -> None:
+        self.canvas.configure(cursor="hand2" if mic or gear else "")
+        if gear != self._gear_hover:
+            self._gear_hover = gear
+            self.canvas.itemconfigure(self._gear, fill=TEXT if gear else MUTED)
+        if mic != self._mic_hover:
+            self._mic_hover = mic
+            self._render_mic()
+
+    def _on_click(self, event) -> None:
+        if self._gear_hover:
+            self._open_settings()
+        elif self._over_mic(event.x, event.y):
+            self.toggle()
+
+    def _open_settings(self) -> None:
+        if self._settings_file is None:
+            return
+        try:
+            os.startfile(str(self._settings_file))
+        except OSError:
+            # No app associated with .yaml on this machine.
+            subprocess.Popen(["notepad.exe", str(self._settings_file)])
+
     # --- state --------------------------------------------------------------
 
     def toggle(self) -> None:
@@ -156,30 +276,92 @@ class MainWindow:
         self._on_state_changed()
         self._render()
 
-    def _set_hover(self, hover: bool) -> None:
-        self._hover = hover
-        self._render()
+    def show_command(self, text: str, outcome: str) -> None:
+        """Safe to call from any thread. outcome: running / done / stopped / failed."""
+        self._command = (text, outcome)
+
+    def _render_mic(self) -> None:
+        enabled = self.listener.is_enabled
+        pulse = (math.sin(self._phase) + 1) / 2 if enabled else 0.0
+        frame = self._mic_art.frame(enabled, self._mic_hover, pulse)
+        key = id(frame)
+        if key != self._shown_mic_key:
+            self._shown_mic_key = key
+            self._images["mic"].paste(frame)
+
+    def _render_wave(self) -> None:
+        enabled = self.listener.is_enabled
+        target = self.listener.level if enabled else 0.0
+        # Fast attack, slow release, so speech reads as a smooth envelope.
+        self._level = target if target > self._level else self._level * 0.88 + target * 0.12
+        c = self.canvas
+        x0 = WIDTH / 2 - (WAVE_BARS - 1) / 2 * WAVE_STEP
+        for i, bar in enumerate(self._wave):
+            profile = self._wave_profile[i]
+            if enabled:
+                wobble = 0.6 + 0.4 * math.sin(self._phase * 2.3 + i * 0.9) * math.sin(self._phase * 1.1 + i * 0.37)
+                half = 1 + (1.5 + WAVE_MAX * self._level * wobble) * profile
+                color = ui_art.color(_mix((23, 70, 47), ui_art.GREEN, 0.25 + 0.75 * profile))
+            else:
+                half, color = 1, ui_art.color((52, 56, 64))
+            x = x0 + i * WAVE_STEP
+            c.coords(bar, x, WAVE_Y - half, x, WAVE_Y + half)
+            c.itemconfigure(bar, fill=color)
+
+    def _render_status(self) -> None:
+        enabled = self.listener.is_enabled
+        if self._shown_enabled == enabled:
+            return
+        self._shown_enabled = enabled
+        word = "Слушаю" if enabled else "На паузе"
+        group = 10 + 10 + self._status_font.measure(word)
+        left = WIDTH / 2 - group / 2
+        c = self.canvas
+        c.itemconfigure(self._status_dot, image=self._images["dot_on" if enabled else "dot_off"])
+        c.coords(self._status_dot, left + 5, 324)
+        c.itemconfigure(self._status_text, text=word, fill=ON if enabled else MUTED)
+        c.coords(self._status_text, left + 20, 324)
+        c.itemconfigure(
+            self._caption,
+            text="Нажмите на микрофон, чтобы поставить на паузу" if enabled else "Нажмите на микрофон, чтобы включить",
+        )
+
+    def _render_command(self) -> None:
+        command = self._command
+        running = command is not None and command[1] == "running"
+        if command == self._shown_command and not running:
+            return
+        c = self.canvas
+        if running:
+            self._spinner_index = (self._spinner_index + 1) % (len(self._spinner) * 3)
+            c.itemconfigure(self._card_icon, image=self._spinner[self._spinner_index // 3])
+            if command == self._shown_command:
+                return
+        self._shown_command = command
+
+        cx0, cy0, cx1, _ = CARD
+        if command is None:
+            c.itemconfigure(self._phrase, text="Пока нет команд", fill=MUTED)
+            c.itemconfigure(self._card_status, text="")
+            c.itemconfigure(self._card_icon, image="")
+            return
+
+        text, outcome = command
+        status, status_color = _COMMAND_STATUS[outcome]
+        c.itemconfigure(self._card_status, text=status, fill=status_color)
+        status_left = cx1 - 16 - self._card_status_font.measure(status)
+        icon_x = status_left - 8 - 11
+        c.coords(self._card_icon, icon_x, cy0 + 41)
+        if not running:
+            c.itemconfigure(self._card_icon, image=self._images[f"status_{outcome}"])
+        phrase = f"«{text[:1].upper()}{text[1:]}»"
+        c.itemconfigure(self._phrase, text=_ellipsize(phrase, self._phrase_font, icon_x - 11 - 12 - (cx0 + 16)), fill=TEXT)
 
     def _render(self) -> None:
-        enabled = self.listener.is_enabled
-        c = self.canvas
-        pulse = (math.sin(self._phase) + 1) / 2 if enabled else 0.0
-
-        ring = ON if enabled else (MUTED if self._hover else OFF)
-        disc = _mix(ON_DIM, "#256f49", 0.6) if enabled and self._hover else (ON_DIM if enabled else (OFF if self._hover else OFF_DIM))
-        c.itemconfigure(self._ring, outline=ring)
-        c.itemconfigure(self._disc, fill=disc)
-        c.itemconfigure(self._glow, fill=_mix(BG, ON_DIM, 0.35 + 0.45 * pulse) if enabled else BG)
-        mic_color = TEXT if enabled else "#9aa0a8"
-        for item in self._mic:
-            c.itemconfigure(item, **{"outline" if c.type(item) == "arc" else "fill": mic_color})
-
-        if self._shown_state != enabled:
-            self._shown_state = enabled
-            self.status.configure(text="СЛУШАЮ" if enabled else "НА ПАУЗЕ", fg=ON if enabled else MUTED)
-            self.caption.configure(
-                text="Нажмите, чтобы поставить на паузу" if enabled else "Нажмите, чтобы включить"
-            )
+        self._render_mic()
+        self._render_status()
+        self._render_wave()
+        self._render_command()
 
     def _tick(self) -> None:
         if self._quit_requested.is_set():
@@ -189,12 +371,10 @@ class MainWindow:
             self._show_requested.clear()
             self._show_now()
 
-        if self.listener.is_enabled:
-            self._phase += 0.12
+        if self.root.state() != "withdrawn":
+            self._phase += 0.09
             self._render()
-        elif self._shown_state is not False:
-            self._render()
-        self.root.after(_POLL_MS, self._tick)
+        self.root.after(_TICK_MS, self._tick)
 
     # --- visibility / lifecycle (show/quit are safe to call from any thread) --
 
@@ -218,8 +398,14 @@ class MainWindow:
         self.root.mainloop()
 
 
-def _mix(a: str, b: str, t: float) -> str:
+def _mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
     t = max(0.0, min(1.0, t))
-    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
-    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def _ellipsize(text: str, font: tkfont.Font, max_width: float) -> str:
+    if font.measure(text) <= max_width:
+        return text
+    while text and font.measure(text + "…»") > max_width:
+        text = text[:-1]
+    return text.rstrip() + "…»"
