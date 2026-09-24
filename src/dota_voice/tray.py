@@ -4,12 +4,13 @@ import logging
 import os
 import subprocess
 import threading
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
 import keyboard
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageOps
 
 from .config import Config
 from .speech import SpeechListener
@@ -17,12 +18,17 @@ from .speech import SpeechListener
 logger = logging.getLogger("dota_voice.tray")
 
 
+ICON_FILE = Path(__file__).resolve().parents[2] / "assets" / "app_icon.png"
+
+
+@lru_cache(maxsize=2)
 def make_icon_image(active: bool) -> Image.Image:
-    color = (0, 200, 0) if active else (150, 150, 150)
-    img = Image.new("RGB", (64, 64), (30, 30, 30))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse((12, 12, 52, 52), fill=color)
-    return img
+    img = Image.open(ICON_FILE).convert("RGBA").resize((256, 256), Image.LANCZOS)
+    if active:
+        return img
+    grey = ImageOps.grayscale(img).point(lambda v: int(v * 0.75)).convert("RGBA")
+    grey.putalpha(img.getchannel("A"))
+    return grey
 
 
 class TrayApp:
