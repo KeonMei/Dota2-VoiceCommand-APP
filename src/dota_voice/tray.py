@@ -12,13 +12,13 @@ import keyboard
 import pystray
 from PIL import Image, ImageOps
 
-from .config import Config
+from .config import PROJECT_ROOT, Config
 from .speech import SpeechListener
 
 logger = logging.getLogger("dota_voice.tray")
 
 
-ICON_FILE = Path(__file__).resolve().parents[2] / "assets" / "app_icon.png"
+ICON_FILE = PROJECT_ROOT / "assets" / "app_icon.png"
 
 
 @lru_cache(maxsize=2)
