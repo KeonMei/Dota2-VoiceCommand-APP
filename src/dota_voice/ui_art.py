@@ -48,6 +48,18 @@ def icon(name: str, size: int, rgb: tuple[int, int, int] | None = None) -> Image
     return tinted(img, rgb) if rgb else img
 
 
+def fitted_icon(name: str, box: int) -> Image.Image:
+    """Trims the icon's transparent margins and fits the drawing into a box x box
+    square, so icons drawn with different padding come out the same size."""
+    img = asset(name)
+    img = img.crop(img.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox())
+    scale = box / max(img.size)
+    img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+    out = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+    out.alpha_composite(img, ((box - img.width) // 2, (box - img.height) // 2))
+    return out
+
+
 def render_background(size: tuple[int, int], panels: list[tuple[int, int, int, int, int]], separator_y: int) -> Image.Image:
     """The backdrop art with rounded panels and the footer separator on top.
     `panels` are (x0, y0, x1, y1, radius) in window pixels."""
