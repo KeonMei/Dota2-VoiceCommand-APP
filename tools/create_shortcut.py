@@ -5,8 +5,8 @@ Usage:
 
 The shortcut runs main.py with pythonw.exe from the same Python installation
 (or venv) this script is run with, so run it with the interpreter that has the
-requirements installed. The icon is saved to assets/app.ico - the same green
-dot as the tray icon. Re-running the script overwrites the shortcut, e.g.
+requirements installed. The icon is converted from assets/app_icon.png to
+assets/app.ico - the same image as the tray icon. Re-running the script overwrites the shortcut, e.g.
 after moving the project folder.
 """
 from __future__ import annotations
@@ -27,7 +27,9 @@ SHORTCUT_NAME = "Dota2 Voice Assistant.lnk"
 def _write_icon() -> Path:
     icon_path = PROJECT_ROOT / "assets" / "app.ico"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
-    make_icon_image(active=True).save(icon_path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+    make_icon_image(active=True).save(
+        icon_path, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    )
     return icon_path
 
 
