@@ -168,7 +168,7 @@ full traceback is saved to `logs/startup_error.log`.
 A small window opens with one round button that turns listening on/off
 (green and pulsing = listening). Closing the window keeps the assistant
 running in the tray; click the tray icon to reopen it, or use its "Выход"
-item to quit. A tray icon also appears (a green dot means listening is active). The
+item to quit. A tray icon also appears (colored while listening, grey while paused). The
 `Ctrl+Alt+L` hotkey (configurable at `config.yaml -> hotkeys.toggle_listening`)
 temporarily pauses/resumes command recognition without killing the audio
 stream. If the hotkey doesn't fire, try running `python main.py` from an
