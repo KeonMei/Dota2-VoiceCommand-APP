@@ -44,13 +44,13 @@ TILE_H, TILE_GAP = 40, 10
 TILES_Y = 518
 SEPARATOR_Y = 648
 
-# Placeholder icons from Windows 11's icon font until custom ones are drawn.
 TRY_SAYING = [
-    ("", "Запусти турбо"),
-    ("", "Запусти олл пик"),
-    ("", "Рейтинг на мид"),
-    ("", "Базовый минимум"),
+    ("icon_turbo.png", "Запусти турбо"),
+    ("icon_all_pick.png", "Запусти олл пик"),
+    ("icon_ranked.png", "Рейтинг на мид"),
+    ("icon_basic_minimum.png", "Базовый минимум"),
 ]
+GEAR_COLOR, GEAR_HOVER_COLOR = (128, 134, 143), (236, 238, 241)
 
 _TICK_MS = 33
 _COMMAND_STATUS = {
@@ -182,7 +182,8 @@ class MainWindow:
         c.create_text(MARGIN + 2, TILES_Y - 22, anchor="w", text="Попробуйте сказать", fill=TEXT, font=(FONT, 14, "bold"))
         for (icon, label), (x0, y0, x1, y1) in zip(TRY_SAYING, tiles):
             my = (y0 + y1) / 2
-            c.create_text(x0 + 24, my, text=icon, fill=ACCENT, font=(ICON_FONT, 15))
+            self._images[icon] = ImageTk.PhotoImage(ui_art.icon(icon, 24))
+            c.create_image(x0 + 24, my, image=self._images[icon])
             c.create_text(x0 + 46, my, anchor="w", text=label, fill=TEXT, font=(FONT, 11))
             c.create_text(x1 - 16, my, text="", fill=MUTED, font=(ICON_FONT, 9))
 
@@ -203,7 +204,9 @@ class MainWindow:
         self._images["dot_footer"] = ImageTk.PhotoImage(ui_art.dot(ui_art.GREEN, 8, glow=True))
         c.create_image(MARGIN + 12, foot_y, image=self._images["dot_footer"])
         c.create_text(MARGIN + 26, foot_y, anchor="w", text="Распознавание офлайн", fill=SUBTLE, font=(FONT, 10))
-        self._gear = c.create_text(WIDTH - MARGIN - 12, foot_y, text="", fill=MUTED, font=(ICON_FONT, 15), tags=("gear",))
+        self._images["gear"] = ImageTk.PhotoImage(ui_art.icon("icon_settings.png", 22, GEAR_COLOR))
+        self._images["gear_hover"] = ImageTk.PhotoImage(ui_art.icon("icon_settings.png", 22, GEAR_HOVER_COLOR))
+        self._gear = c.create_image(WIDTH - MARGIN - 12, foot_y, image=self._images["gear"], tags=("gear",))
         keys = " + ".join(part.strip().capitalize() for part in hotkey.split("+"))
         c.create_text(cx, foot_y + 28, text=f"{keys} — вкл / выкл     |     Esc — закрыть", fill=MUTED, font=(FONT, 9))
 
@@ -249,7 +252,7 @@ class MainWindow:
         self.canvas.configure(cursor="hand2" if mic or gear else "")
         if gear != self._gear_hover:
             self._gear_hover = gear
-            self.canvas.itemconfigure(self._gear, fill=TEXT if gear else MUTED)
+            self.canvas.itemconfigure(self._gear, image=self._images["gear_hover" if gear else "gear"])
         if mic != self._mic_hover:
             self._mic_hover = mic
             self._render_mic()
