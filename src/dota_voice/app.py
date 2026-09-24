@@ -48,6 +48,7 @@ class Application:
             hotkey=str(self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l")),
             icon_image=make_icon_image(True),
             icon_file=icon_file,
+            settings_file=self.config.resolve_path("config/config.yaml"),
         )
 
         self._busy_lock = threading.Lock()
@@ -80,9 +81,11 @@ class Application:
     def _on_text_recognized(self, text: str) -> None:
         now = time.monotonic()
         pending = self._pending_text if now - self._pending_since <= _JOIN_WINDOW_SEC else ""
+        spoken = text
         matched = self.matcher.match(text)
         if matched is None and pending:
-            matched = self.matcher.match(f"{pending} {text}")
+            spoken = f"{pending} {text}"
+            matched = self.matcher.match(spoken)
         if matched is None:
             logger.debug("Phrase did not match any command: '%s'", text)
             # Only the last piece is kept - chaining more would let ordinary
@@ -103,11 +106,17 @@ class Application:
             self.notifier.speak("Дождитесь завершения текущей команды")
             return
 
+        self.window.show_command(spoken, "running")
+
         def _run():
+            outcome = "failed"
             try:
-                self.executor.run_steps(command.get("steps", []), params)
+                outcome = self.executor.run_steps(command.get("steps", []), params)
+            except Exception:
+                logger.exception("Command '%s' crashed", command.get("id"))
             finally:
                 self._busy_lock.release()
+                self.window.show_command(spoken, outcome)
 
         threading.Thread(target=_run, daemon=True).start()
 
