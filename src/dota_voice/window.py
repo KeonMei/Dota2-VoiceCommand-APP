@@ -182,7 +182,7 @@ class MainWindow:
         c.create_text(MARGIN + 2, TILES_Y - 22, anchor="w", text="Попробуйте сказать", fill=TEXT, font=(FONT, 14, "bold"))
         for (icon, label), (x0, y0, x1, y1) in zip(TRY_SAYING, tiles):
             my = (y0 + y1) / 2
-            self._images[icon] = ImageTk.PhotoImage(ui_art.icon(icon, 24))
+            self._images[icon] = ImageTk.PhotoImage(ui_art.fitted_icon(icon, 21))
             c.create_image(x0 + 24, my, image=self._images[icon])
             c.create_text(x0 + 46, my, anchor="w", text=label, fill=TEXT, font=(FONT, 11))
             c.create_text(x1 - 16, my, text="", fill=MUTED, font=(ICON_FONT, 9))
