@@ -11,6 +11,7 @@ after moving the project folder.
 """
 from __future__ import annotations
 
+import ctypes
 import sys
 from pathlib import Path
 
@@ -22,6 +23,10 @@ import win32com.client  # noqa: E402
 from dota_voice.tray import make_icon_image  # noqa: E402
 
 SHORTCUT_NAME = "Dota2 Voice Assistant.lnk"
+SHCNE_UPDATEITEM = 0x00002000
+SHCNE_ASSOCCHANGED = 0x08000000
+SHCNF_IDLIST = 0x0000
+SHCNF_PATHW = 0x0005
 
 
 def _write_icon() -> Path:
@@ -54,6 +59,10 @@ def main() -> None:
     shortcut.IconLocation = f"{_write_icon()},0"
     shortcut.Description = "Голосовой ассистент для Dota 2"
     shortcut.Save()
+    # Explorer caches icons by file path, so a changed app.ico at the same path isn't picked up otherwise.
+    shell32 = ctypes.windll.shell32
+    shell32.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, ctypes.c_wchar_p(str(shortcut_path)), None)
+    shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
 
     print(f"Shortcut created: {shortcut_path}")
 
