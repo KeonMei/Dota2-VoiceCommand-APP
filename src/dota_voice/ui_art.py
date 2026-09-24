@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import math
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
+from .config import PROJECT_ROOT
+
+ASSETS = PROJECT_ROOT / "assets" / "ui"
 S = 2  # supersampling factor
+MIC_ICON_SIZE = 64
 
 BG = (14, 16, 20)
 PANEL = (22, 25, 31, 235)
@@ -28,57 +32,27 @@ def _down(img: Image.Image) -> Image.Image:
     return img.resize((img.width // S, img.height // S), Image.LANCZOS)
 
 
-def _faded_line(size: tuple[int, int], start, end, width: float, fade_to: float) -> Image.Image:
-    """Alpha mask of a line that fades out towards `end` (fade_to = remaining opacity)."""
-    mask = Image.new("L", size, 0)
-    steps = 40
-    d = ImageDraw.Draw(mask)
-    for i in range(steps):
-        t0, t1 = i / steps, (i + 1) / steps
-        p0 = (start[0] + (end[0] - start[0]) * t0, start[1] + (end[1] - start[1]) * t0)
-        p1 = (start[0] + (end[0] - start[0]) * t1, start[1] + (end[1] - start[1]) * t1)
-        d.line([p0, p1], fill=int(255 * (1 - (1 - fade_to) * t0)), width=max(1, round(width)))
-    return mask
+def asset(name: str) -> Image.Image:
+    return Image.open(ASSETS / name).convert("RGBA")
+
+
+def tinted(img: Image.Image, rgb: tuple[int, int, int]) -> Image.Image:
+    """Recolors a single-color icon, keeping its shape (alpha)."""
+    out = Image.new("RGBA", img.size, rgb + (0,))
+    out.putalpha(img.getchannel("A"))
+    return out
+
+
+def icon(name: str, size: int, rgb: tuple[int, int, int] | None = None) -> Image.Image:
+    img = asset(name).resize((size, size), Image.LANCZOS)
+    return tinted(img, rgb) if rgb else img
 
 
 def render_background(size: tuple[int, int], panels: list[tuple[int, int, int, int, int]], separator_y: int) -> Image.Image:
-    """Dark backdrop with red diagonal streaks, rounded panels and the footer
-    separator. `panels` are (x0, y0, x1, y1, radius) in window pixels."""
+    """The backdrop art with rounded panels and the footer separator on top.
+    `panels` are (x0, y0, x1, y1, radius) in window pixels."""
     w, h = size[0] * S, size[1] * S
-    img = Image.new("RGBA", (w, h), BG + (255,))
-
-    # Soft light behind the mic button.
-    halo = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(halo).ellipse((w / 2 - 260 * S, 40 * S, w / 2 + 260 * S, 460 * S), fill=34)
-    halo = halo.filter(ImageFilter.GaussianBlur(90 * S))
-    img = Image.composite(Image.new("RGBA", (w, h), (28, 32, 40, 255)), img, halo)
-
-    def red_layer(mask: Image.Image, color=RED) -> None:
-        nonlocal img
-        layer = Image.new("RGBA", (w, h), color + (0,))
-        layer.putalpha(mask)
-        img = Image.alpha_composite(img, layer)
-
-    # Wedges: dark red panels bounded by the streak lines, fading downwards.
-    fade = Image.linear_gradient("L").resize((w, h)).point(lambda v: 255 - v)
-    wedges = Image.new("L", (w, h), 0)
-    wd = ImageDraw.Draw(wedges)
-    wd.polygon([(0, 0), (100 * S, 0), (0, 200 * S)], fill=70)
-    wd.polygon([(w - 60 * S, 0), (w, 0), (w, 110 * S), (w - 175 * S, 330 * S), (w - 205 * S, 330 * S)], fill=46)
-    wd.polygon([(w, 175 * S), (w, 330 * S), (w - 78 * S, 340 * S)], fill=40)
-    wedges = ImageChops.multiply(wedges.filter(ImageFilter.GaussianBlur(6 * S)), fade.point(lambda v: min(255, v * 2)))
-    red_layer(wedges, (120, 18, 14))
-
-    lines = [
-        ((100 * S, 0), (0, 200 * S), 0.15),
-        ((w - 60 * S, 0), (w - 205 * S, 330 * S), 0.0),
-        ((w, 175 * S), (w - 78 * S, 340 * S), 0.0),
-    ]
-    for start, end, fade_to in lines:
-        glow = _faded_line((w, h), start, end, 6 * S, fade_to).filter(ImageFilter.GaussianBlur(5 * S))
-        red_layer(glow.point(lambda v: v * 0.55))
-        red_layer(_faded_line((w, h), start, end, 1.2 * S, fade_to).point(lambda v: v * 0.9))
-
+    img = asset("background.webp").resize((w, h), Image.LANCZOS)
     d = ImageDraw.Draw(img)
     for x0, y0, x1, y1, r in panels:
         d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=r * S, fill=PANEL, outline=PANEL_BORDER, width=S)
@@ -141,20 +115,10 @@ class MicButtonArt:
             d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=col + (255,))
         d.ellipse((cx - r + 9 * S, cy - r + 9 * S, cx + r - 9 * S, cy + r - 9 * S), outline=inner, width=S)
         d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=ring + (255,), width=5 * S)
-        self._draw_mic(d, cx, cy, mic + (255,))
-        return _down(img)
-
-    @staticmethod
-    def _draw_mic(d: ImageDraw.ImageDraw, cx: float, cy: float, color) -> None:
-        cw, top, bottom = 13 * S, cy - 34 * S, cy + 8 * S
-        d.rounded_rectangle((cx - cw, top, cx + cw, bottom), radius=cw, fill=color)
-        ar, stroke = 23 * S, 5 * S
-        arc_cy = cy - 4 * S
-        d.arc((cx - ar, arc_cy - ar, cx + ar, arc_cy + ar), start=0, end=180, fill=color, width=stroke)
-        d.rectangle((cx - ar, arc_cy - 6 * S, cx - ar + stroke, arc_cy), fill=color)
-        d.rectangle((cx + ar - stroke, arc_cy - 6 * S, cx + ar, arc_cy), fill=color)
-        d.rectangle((cx - stroke / 2, arc_cy + ar - 1 * S, cx + stroke / 2, arc_cy + ar + 11 * S), fill=color)
-        d.rounded_rectangle((cx - 14 * S, arc_cy + ar + 9 * S, cx + 14 * S, arc_cy + ar + 14 * S), radius=2 * S, fill=color)
+        body = _down(img)
+        glyph = icon("mic.png", MIC_ICON_SIZE, mic)
+        body.alpha_composite(glyph, ((body.width - glyph.width) // 2, (body.height - glyph.height) // 2))
+        return body
 
     def frame(self, enabled: bool, hover: bool, pulse: float) -> Image.Image:
         """pulse: 0..1, only used while enabled."""
