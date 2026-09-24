@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import queue
 import threading
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Callable
 
 import itertools
 
+import numpy as np
 import sounddevice as sd
 import vosk
 
@@ -19,6 +21,15 @@ logger = logging.getLogger("dota_voice.speech")
 vosk.SetLogLevel(-1)
 
 _UNKNOWN = "[unk]"
+
+
+def _loudness(data: bytes) -> float:
+    """0..1 on a dB scale: the room's noise floor (~-55 dBFS) maps to 0,
+    loud close speech (~-20 dBFS) to 1."""
+    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+    rms = float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
+    db = 20 * math.log10(max(rms, 1.0) / 32768)
+    return min(1.0, max(0.0, (db + 55) / 35))
 
 
 def _in_vocabulary(model: vosk.Model, word: str) -> bool:
@@ -100,6 +111,7 @@ class SpeechListener:
         self._running = threading.Event()
         self._enabled = threading.Event()
         self._enabled.set()
+        self.level = 0.0
 
     def start(self) -> None:
         if self._running.is_set():
@@ -107,7 +119,9 @@ class SpeechListener:
         self._running.set()
         self._stream = sd.RawInputStream(
             samplerate=self._sample_rate,
-            blocksize=8000,
+            # 0.1 s blocks keep the window's level meter responsive; Vosk
+            # decodes the same stream regardless of the chunking.
+            blocksize=self._sample_rate // 10,
             device=self._device,
             dtype="int16",
             channels=1,
@@ -146,7 +160,9 @@ class SpeechListener:
     def _audio_callback(self, indata, frames, time_info, status) -> None:
         if status:
             logger.debug("Audio status: %s", status)
-        self._audio_queue.put(bytes(indata))
+        data = bytes(indata)
+        self.level = _loudness(data)
+        self._audio_queue.put(data)
 
     def _recognize_loop(self) -> None:
         if self._grammar is not None:
