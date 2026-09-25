@@ -132,7 +132,7 @@ class SettingsWindow:
         c = self.canvas = tk.Canvas(self.top, width=WIDTH, height=HEIGHT, highlightthickness=0, bd=0)
         c.pack()
         boxes = [(*card, 12) for card in CARDS] + [(*MIC_FIELD, 6, *ui_art.FIELD), (*VOICE_FIELD, 6, *ui_art.FIELD)]
-        self.background = ui_art.render_background((WIDTH, HEIGHT), boxes)
+        self.background = ui_art.render_background((WIDTH, HEIGHT), boxes, art="background_settings.webp")
         self._images: dict[str, ImageTk.PhotoImage] = {"background": ImageTk.PhotoImage(self.background)}
         c.create_image(0, 0, image=self._images["background"], anchor="nw")
 
