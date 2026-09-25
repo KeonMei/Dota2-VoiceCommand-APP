@@ -43,6 +43,7 @@ class TrayApp:
         self.listener = listener
         self._on_show_window = on_show_window
         self._on_exit_callback = on_exit
+        self._hotkey_handle = None
         self.logs_dir = config.resolve_path(config.get("feedback", "log_file", default="logs/app.log")).parent
         self._icon = pystray.Icon(
             "dota_voice",
@@ -82,15 +83,20 @@ class TrayApp:
         icon.stop()
         self._on_exit_callback()
 
-    def _register_hotkey(self) -> None:
-        hotkey = self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l")
+    def set_hotkey(self, hotkey: str | None) -> None:
+        """(Re)registers the listening toggle hotkey; None just removes it."""
+        if self._hotkey_handle is not None:
+            keyboard.remove_hotkey(self._hotkey_handle)
+            self._hotkey_handle = None
+        if not hotkey:
+            return
 
         def _toggle():
             self.listener.toggle_enabled()
             self.refresh()
 
         try:
-            keyboard.add_hotkey(hotkey, _toggle)
+            self._hotkey_handle = keyboard.add_hotkey(hotkey, _toggle)
             logger.info("Registered the listening toggle hotkey: %s", hotkey)
         except Exception:
             logger.exception("Failed to register the global hotkey '%s'", hotkey)
@@ -98,7 +104,7 @@ class TrayApp:
     def start(self) -> None:
         """Runs the tray icon on its own thread - the main thread belongs to
         the window."""
-        self._register_hotkey()
+        self.set_hotkey(self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l"))
         self._icon.run_detached()
 
     def stop(self) -> None:
