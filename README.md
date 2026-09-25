@@ -167,7 +167,9 @@ full traceback is saved to `logs/startup_error.log`.
 
 A window opens with a round microphone button that turns listening on/off
 (green and pulsing = listening), a live microphone level, the last command
-with its outcome, and example phrases; the gear opens `config.yaml`.
+with its outcome, and example phrases. The gear opens Settings: microphone,
+voice replies (on/off, voice, volume, tempo) and the listening hotkey — changes
+apply at once and are saved to `config.yaml`.
 Closing the window (or Esc) keeps the assistant
 running in the tray; click the tray icon to reopen it, or use its "Выход"
 item to quit. A tray icon also appears (colored while listening, grey while paused). The
