@@ -32,6 +32,35 @@ def _loudness(data: bytes) -> float:
     return min(1.0, max(0.0, (db + 55) / 35))
 
 
+def _mme_hostapi() -> int | None:
+    return next((i for i, api in enumerate(sd.query_hostapis()) if api["name"] == "MME"), None)
+
+
+def input_devices() -> list[str]:
+    """Microphone names as Windows lists them (MME host API - the one that
+    accepts the 16 kHz stream Vosk needs), without the system "sound mapper"
+    pseudo-device."""
+    mme = _mme_hostapi()
+    names = []
+    for device in sd.query_devices():
+        if device["max_input_channels"] > 0 and device["hostapi"] == mme and not device["name"].endswith(" - Input"):
+            names.append(device["name"])
+    return names
+
+
+def _device_index(device: str | int | None) -> int | None:
+    """config.yaml stores the microphone by name (indexes shift when devices
+    are plugged in); an int is still accepted as an index."""
+    if device is None or isinstance(device, int):
+        return device
+    mme = _mme_hostapi()
+    for index, info in enumerate(sd.query_devices()):
+        if info["name"] == device and info["hostapi"] == mme and info["max_input_channels"] > 0:
+            return index
+    logger.warning("Microphone '%s' not found - using the system default.", device)
+    return None
+
+
 def _in_vocabulary(model: vosk.Model, word: str) -> bool:
     return model.vosk_model_find_word(word) >= 0
 
@@ -117,28 +146,55 @@ class SpeechListener:
         if self._running.is_set():
             return
         self._running.set()
-        self._stream = sd.RawInputStream(
-            samplerate=self._sample_rate,
-            # 0.1 s blocks keep the window's level meter responsive; Vosk
-            # decodes the same stream regardless of the chunking.
-            blocksize=self._sample_rate // 10,
-            device=self._device,
-            dtype="int16",
-            channels=1,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+        self._open_stream()
         self._thread = threading.Thread(target=self._recognize_loop, daemon=True)
         self._thread.start()
         logger.info("Microphone listening started.")
 
     def stop(self) -> None:
         self._running.clear()
+        self._close_stream()
+        logger.info("Microphone listening stopped.")
+
+    @property
+    def input_device(self) -> str | int | None:
+        return self._device
+
+    def set_input_device(self, device: str | int | None) -> None:
+        """Switches the microphone on the fly. Raises if the device can't be
+        opened - the previous device is restored in that case."""
+        previous = self._device
+        self._device = device
+        if not self._running.is_set():
+            return
+        self._close_stream()
+        try:
+            self._open_stream()
+        except Exception:
+            self._device = previous
+            self._open_stream()
+            raise
+        logger.info("Microphone switched to: %s", device or "system default")
+
+    def _open_stream(self) -> None:
+        self._stream = sd.RawInputStream(
+            samplerate=self._sample_rate,
+            # 0.1 s blocks keep the window's level meter responsive; Vosk
+            # decodes the same stream regardless of the chunking.
+            blocksize=self._sample_rate // 10,
+            device=_device_index(self._device),
+            dtype="int16",
+            channels=1,
+            callback=self._audio_callback,
+        )
+        self._stream.start()
+
+    def _close_stream(self) -> None:
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        logger.info("Microphone listening stopped.")
+        self.level = 0.0
 
     def set_enabled(self, enabled: bool) -> None:
         if enabled:
