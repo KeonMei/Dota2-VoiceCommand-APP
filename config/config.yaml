@@ -19,7 +19,7 @@ speech:
   sample_rate: 16000
   # Microphone name as shown in the Settings window (an index also works).
   # null = system default device.
-  input_device: null
+  input_device: "Микрофон (HyperX Cloud III)"
   # Listen without an activation keyword - every phrase is checked against the command list.
   wake_word_required: false
 
