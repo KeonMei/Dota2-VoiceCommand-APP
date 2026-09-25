@@ -4,6 +4,7 @@ import io
 import logging
 import threading
 import wave
+from pathlib import Path
 
 import pyttsx3
 import winsound
@@ -38,6 +39,34 @@ class Notifier:
         self._lock = threading.Lock()
         self._resolved_voice_id: str | None = None
         self._voice_resolved = False
+
+    def configure(
+        self,
+        *,
+        enabled: bool | None = None,
+        engine: str | None = None,
+        piper_model: Path | None = None,
+        volume: float | None = None,
+        length_scale: float | None = None,
+        rate: int | None = None,
+    ) -> None:
+        """Applies changed settings on the fly; takes effect from the next phrase."""
+        if enabled is not None:
+            self._enabled = enabled
+        if volume is not None:
+            self._volume = volume
+        if length_scale is not None:
+            self._piper_length_scale = length_scale
+        if rate is not None:
+            self._rate = rate
+        if piper_model is not None and piper_model != self._piper_model_path:
+            self._piper_model_path = piper_model
+            self._piper_voice = None
+            self._piper_failed = False
+        if engine is not None:
+            self._engine = engine
+        if enabled or engine is not None or piper_model is not None:
+            self.warm_up()
 
     def _resolve_voice(self, engine: pyttsx3.Engine) -> str | None:
         if self._voice_resolved:
@@ -117,9 +146,10 @@ class Notifier:
         except Exception:
             logger.exception("Failed to speak phrase via TTS: %s", text)
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, force: bool = False) -> None:
+        """force: speak even with voice replies turned off (the Settings preview)."""
         logger.info("[TTS] %s", text)
-        if not self._enabled:
+        if not (self._enabled or force):
             return
         with self._lock:
             self._speak_sync(text)
