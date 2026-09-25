@@ -17,6 +17,7 @@ BG = (14, 16, 20)
 PANEL = (22, 25, 31, 235)
 PANEL_BORDER = (43, 47, 56, 255)
 SEPARATOR = (34, 37, 44, 255)
+FIELD = ((16, 18, 23, 255), (55, 59, 68, 255))
 RED = (229, 64, 47)
 GREEN = (61, 220, 132)
 GREY = (74, 79, 88)
@@ -60,16 +61,114 @@ def fitted_icon(name: str, box: int) -> Image.Image:
     return out
 
 
-def render_background(size: tuple[int, int], panels: list[tuple[int, int, int, int, int]], separator_y: int) -> Image.Image:
-    """The backdrop art with rounded panels and the footer separator on top.
-    `panels` are (x0, y0, x1, y1, radius) in window pixels."""
+def render_background(
+    size: tuple[int, int],
+    panels: list[tuple],
+    separator_y: int | None = None,
+    art: str = "background.webp",
+) -> Image.Image:
+    """The backdrop art (scaled to cover the window, cropped from the top) with
+    rounded boxes and an optional footer separator on top. A box is
+    (x0, y0, x1, y1, radius) in window pixels, optionally followed by
+    (fill, outline) - FIELD for inputs; the default is a card."""
     w, h = size[0] * S, size[1] * S
-    img = asset("background.webp").resize((w, h), Image.LANCZOS)
-    d = ImageDraw.Draw(img)
-    for x0, y0, x1, y1, r in panels:
-        d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=r * S, fill=PANEL, outline=PANEL_BORDER, width=S)
-    d.line((0, separator_y * S, w, separator_y * S), fill=SEPARATOR, width=S)
+    img = asset(art)
+    scale = max(w / img.width, h / img.height)
+    img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    left = (img.width - w) // 2
+    img = img.crop((left, 0, left + w, h))
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(overlay)
+    for box in panels:
+        x0, y0, x1, y1, r = box[:5]
+        fill, outline = box[5:7] if len(box) > 5 else (PANEL, PANEL_BORDER)
+        d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=r * S, fill=fill, outline=outline, width=S)
+    if separator_y is not None:
+        d.line((0, separator_y * S, w, separator_y * S), fill=SEPARATOR, width=S)
+    return _down(Image.alpha_composite(img, overlay))
+
+
+def _layer(size: tuple[int, int], paint) -> Image.Image:
+    """Transparent size-d image drawn by paint(draw, s) at 2x (s = scale) and scaled down."""
+    img = Image.new("RGBA", (size[0] * S, size[1] * S), (0, 0, 0, 0))
+    paint(ImageDraw.Draw(img), S)
     return _down(img)
+
+
+def over(background: Image.Image, layer: Image.Image) -> Image.Image:
+    out = background.convert("RGBA").copy()
+    out.alpha_composite(layer)
+    return out
+
+
+def toggle_switch(on: bool, size: tuple[int, int]) -> Image.Image:
+    w, h = size
+
+    def paint(d, s):
+        d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=h * s / 2, fill=(GREEN if on else (58, 62, 70)) + (255,))
+        knob = (h - 4) * s
+        x = (w * s - 2 * s - knob) if on else 2 * s
+        d.ellipse((x, 2 * s, x + knob, 2 * s + knob), fill=(255, 255, 255, 255) if on else (170, 175, 183, 255))
+
+    return _layer(size, paint)
+
+
+def slider(value: float, size: tuple[int, int]) -> Image.Image:
+    """value: 0..1. The thumb stays inside the image at both ends."""
+    w, h = size
+    thumb = 16
+
+    def paint(d, s):
+        cy, track = h * s / 2, 6 * s
+        x0, x1 = thumb * s / 2, (w - thumb / 2) * s
+        tx = x0 + (x1 - x0) * max(0.0, min(1.0, value))
+        d.rounded_rectangle((x0, cy - track / 2, x1, cy + track / 2), radius=track / 2, fill=(55, 59, 68, 255))
+        d.rounded_rectangle((x0, cy - track / 2, tx, cy + track / 2), radius=track / 2, fill=GREEN + (255,))
+        r = thumb * s / 2
+        d.ellipse((tx - r, cy - r, tx + r, cy + r), fill=GREEN + (255,), outline=(30, 110, 70, 255), width=s)
+
+    return _layer(size, paint)
+
+
+def level_bar(level: float, size: tuple[int, int]) -> Image.Image:
+    w, h = size
+
+    def paint(d, s):
+        d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=h * s / 2, fill=(43, 47, 56, 255))
+        fill_w = max(0.0, min(1.0, level)) * w * s
+        if fill_w >= h * s:
+            d.rounded_rectangle((0, 0, fill_w - 1, h * s - 1), radius=h * s / 2, fill=GREEN + (255,))
+
+    return _layer(size, paint)
+
+
+def outline_button(hover: bool, size: tuple[int, int]) -> Image.Image:
+    w, h = size
+
+    def paint(d, s):
+        fill = (34, 38, 46, 255) if hover else (22, 25, 31, 255)
+        outline = (92, 97, 108, 255) if hover else (66, 70, 80, 255)
+        d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=7 * s, fill=fill, outline=outline, width=s)
+
+    return _layer(size, paint)
+
+
+def keycaps(size: tuple[int, int], caps: list[tuple[int, int]], recording: bool) -> Image.Image:
+    """The hotkey field: a bordered box with a key plate per (x0, x1) span;
+    while recording just the box, outlined in red."""
+    w, h = size
+
+    def paint(d, s):
+        outline = RED + (255,) if recording else (43, 47, 56, 255)
+        d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=7 * s, fill=(17, 19, 24, 255), outline=outline, width=s)
+        if recording:
+            return
+        top, bottom = 6 * s, (h - 6) * s
+        for x0, x1 in caps:
+            d.rounded_rectangle((x0 * s, top, x1 * s, bottom), radius=5 * s, fill=(30, 33, 40, 255), outline=(62, 66, 76, 255), width=s)
+
+    return _layer(size, paint)
 
 
 class MicButtonArt:
