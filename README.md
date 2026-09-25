@@ -26,8 +26,9 @@ Panorama UI does not expose standard OS accessibility handles.
 | Clicks / keyboard                | `pyautogui`                   | Simple click/hotkey API with a built-in fail-safe (mouse to a screen corner aborts). |
 | Panorama UI element detection    | `OpenCV` (`matchTemplate`) + `mss` | More robust than hardcoded coordinates against small rendering differences. |
 | Configuration                    | `PyYAML`                      | Human-readable `config.yaml` / `commands.yaml`, editable without touching code. |
-| Feedback                         | `pyttsx3` (offline TTS) + `winsound` | Spoken confirmation without any cloud TTS dependency. |
+| Feedback                         | `piper-tts` (offline neural voice), `pyttsx3` fallback + `winsound` | Natural-sounding spoken replies without any cloud TTS dependency. |
 | Tray + hotkey                    | `pystray` + `keyboard`        | Tray icon with an on/off menu, plus a global hotkey. |
+| Main and Settings windows        | `tkinter` + `Pillow`          | Standard-library windows; Pillow draws the anti-aliased art (glow, cards, controls) that Tk's canvas can't. |
 
 ## 2. Architecture
 
@@ -43,13 +44,19 @@ src/dota_voice/
     process_utils.py            # process launching, process/window readiness (psutil/win32gui)
     notify.py                   # TTS speech + beep feedback
     tray.py                     # tray icon, menu, global hotkey
+    window.py                   # main window: mic button, level meter, last command
+    settings_window.py          # Settings: microphone, voice replies, hotkey (applied live)
+    ui_art.py                   # Pillow-rendered window art
     app.py                      # wires every module into one running application
 tools/
     calibrate.py                # interactive UI template calibration tool
+    create_shortcut.py          # desktop shortcut (no console window) + assets/app.ico
     list_voices.py              # lists installed TTS voices
 config/
     config.yaml                 # paths, timings, role synonyms, tunable parameters
     commands.yaml               # declarative "command -> steps" definitions
+assets/                         # app icon (app_icon.png) and window art/icons (ui/)
+models/                         # Vosk speech model and Piper voices (downloaded separately)
 templates/                      # reference PNG crops of Dota 2 UI elements (produced by calibration)
 logs/                           # app.log (rotated)
 ```
@@ -86,11 +93,11 @@ Role synonyms:
 ```yaml
 roles:
   mid:
-    label: "Mid"
-    synonyms: ["мидер", "мид", "миддер", "middle", "вторая позиция", "2 позиция"]
+    label: "Мидер"
+    synonyms: ["мидер", "мид", "мида", "центр", "вторая позиция", "двойка"]
 ```
 
-Command steps (the "ranked game" example):
+Command steps (the "ranked game" example, abridged):
 
 ```yaml
 - id: ranked_role
@@ -139,6 +146,17 @@ Download the offline Russian speech model (Vosk):
    project root (or point `config/config.yaml -> speech.model_path` at a
    different location)
 
+Download a Piper voice for spoken replies (optional — without it the
+built-in Windows voice is used):
+
+```bash
+python -m piper.download_voices ru_RU-denis-medium --data-dir models/piper
+```
+
+Other Russian voices: `ru_RU-dmitri-medium`, `ru_RU-irina-medium`,
+`ru_RU-ruslan-medium` (~63 MB each). Every voice in `models/piper` shows up
+in Settings -> "Голос".
+
 Review `config/config.yaml` for your machine — at minimum, the paths under
 `apps.*` (Steam/Chrome/Discord) — and check the screen resolution templates
 are calibrated for:
@@ -173,14 +191,15 @@ apply at once and are saved to `config.yaml`.
 Closing the window (or Esc) keeps the assistant
 running in the tray; click the tray icon to reopen it, or use its "Выход"
 item to quit. A tray icon also appears (colored while listening, grey while paused). The
-`Ctrl+Alt+L` hotkey (configurable at `config.yaml -> hotkeys.toggle_listening`)
+`Ctrl+Alt+L` hotkey (changeable in Settings or at `config.yaml -> hotkeys.toggle_listening`)
 temporarily pauses/resumes command recognition without killing the audio
 stream. If the hotkey doesn't fire, try running `python main.py` from an
 elevated PowerShell — the `keyboard` library sometimes needs that on Windows.
 
 ## 5. Calibrating Dota 2 templates for your resolution
 
-The "start a ranked game as ..." command relies on 13 templates, calibrated
+The "start a ranked game as ..." command relies on 14 templates, plus 2
+optional ones for cancelling a search that's already running, calibrated
 once (and again whenever your screen resolution or the Dota 2 UI scale
 changes):
 
@@ -191,8 +210,8 @@ changes):
 | `ranked_roles_tab_inactive` | The same header while it's **closed** (normal-game section open) |
 | `role_<id>` / `role_<id>_selected` | Each role icon in its unselected and selected/highlighted state — `<id>` is `carry`, `mid`, `offlane`, `support`, `hard_support` |
 | `find_match_button`         | The button that confirms/starts the matchmaking search  |
-| `search_in_progress` | The "ПОИСК ИГРЫ" bar shown while a search is running |
-| `cancel_search_button` | The small red cross inside that bar (the only thing that cancels it) |
+| `search_in_progress` (optional) | The "ПОИСК ИГРЫ" bar shown while a search is running |
+| `cancel_search_button` (optional) | The small red cross inside that bar (the only thing that cancels it) |
 
 A section header is clicked only when its closed look matches, so a
 command never toggles a section that's already open. Two states per role are needed because Dota's role icons are toggles, not an
@@ -213,7 +232,7 @@ The script gives you 5 seconds to switch to Dota 2 and open the relevant
 screen (for a `_selected` template, click the role icon first so it shows
 its highlighted look), takes a screenshot, and lets you drag a tight
 rectangle around the element — crop the unselected/selected pair identically
-so only the highlight differs. Repeat for all 13 names, then test:
+so only the highlight differs. Repeat for every name in the table, then test:
 
 ```
 "Начни рейтинговую игру на мидера"
