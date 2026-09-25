@@ -17,7 +17,8 @@ speech:
   # Additional words to allow in restricted mode without adding a phrase.
   extra_words: []
   sample_rate: 16000
-  # Input audio device index. null = system default device.
+  # Microphone name as shown in the Settings window (an index also works).
+  # null = system default device.
   input_device: null
   # Listen without an activation keyword - every phrase is checked against the command list.
   wake_word_required: false
