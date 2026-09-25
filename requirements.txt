@@ -22,7 +22,6 @@ Pillow>=10.4.0
 
 # --- Input automation ---
 pyautogui>=0.9.54
-pynput>=1.7.7
 
 # --- Process / window management (Windows) ---
 psutil>=6.0.0
