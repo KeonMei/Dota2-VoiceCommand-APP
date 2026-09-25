@@ -9,6 +9,7 @@ from .commands import CommandMatcher
 from .config import CommandsConfig, Config
 from .logging_setup import setup_logging
 from .notify import Notifier
+from .settings_window import SettingsWindow
 from .speech import SpeechListener
 from .tray import TrayApp, make_icon_image
 from .vision import get_screen_resolution
@@ -48,13 +49,20 @@ class Application:
             hotkey=str(self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l")),
             icon_image=make_icon_image(True),
             icon_file=icon_file,
-            settings_file=self.config.resolve_path("config/config.yaml"),
+            on_open_settings=self._open_settings,
         )
+        self._settings: SettingsWindow | None = None
 
         self._busy_lock = threading.Lock()
         self._pending_text = ""
         self._pending_since = 0.0
         self._check_resolution()
+
+    def _open_settings(self) -> None:
+        if self._settings is not None and self._settings.alive:
+            self._settings.focus()
+            return
+        self._settings = SettingsWindow(self.window, self.config, self.listener, self.notifier, self.tray)
 
     def _check_resolution(self) -> None:
         configured = tuple(self.config.get("vision", "calibrated_resolution", default=[0, 0]))
