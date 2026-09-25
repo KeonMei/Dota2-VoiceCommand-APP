@@ -11,7 +11,10 @@ import tkinter.font as tkfont
 from pathlib import Path
 from typing import Callable
 
+import win32api
+import win32con
 import win32event
+import win32gui
 from PIL import ImageTk
 
 from . import ui_art
@@ -107,12 +110,12 @@ class MainWindow:
         self.root.title(APP_TITLE)
         self.root.configure(bg=ui_art.color(ui_art.BG))
         self.root.resizable(False, False)
-        self._set_icon(icon_image, icon_file)
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
         self.root.bind("<Escape>", lambda _e: self.hide())
 
         self._build(hotkey)
         self._center(WIDTH, HEIGHT)
+        self._set_icon(icon_image, icon_file)
         self._dark_title_bar()
         self._tick()
 
@@ -223,10 +226,20 @@ class MainWindow:
         y = max(0, (self.root.winfo_screenheight() - height) // 3)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
+    def _hwnd(self) -> int:
+        self.root.update_idletasks()
+        return ctypes.windll.user32.GetParent(self.root.winfo_id())
+
     def _set_icon(self, icon_image, icon_file: Path | None) -> None:
         try:
             if icon_file is not None and icon_file.exists():
-                self.root.iconbitmap(default=str(icon_file))
+                # Tk's iconbitmap stretches the .ico's 16 px image up for the
+                # taskbar; loading each size natively keeps it sharp.
+                hwnd = self._hwnd()
+                for which, metric in ((win32con.ICON_BIG, win32con.SM_CXICON), (win32con.ICON_SMALL, win32con.SM_CXSMICON)):
+                    size = win32api.GetSystemMetrics(metric)
+                    handle = win32gui.LoadImage(0, str(icon_file), win32con.IMAGE_ICON, size, size, win32con.LR_LOADFROMFILE)
+                    win32gui.SendMessage(hwnd, win32con.WM_SETICON, which, handle)
             else:
                 self._icon_photo = ImageTk.PhotoImage(icon_image)
                 self.root.iconphoto(True, self._icon_photo)
@@ -235,8 +248,7 @@ class MainWindow:
 
     def _dark_title_bar(self) -> None:
         try:
-            self.root.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            hwnd = self._hwnd()
             value = ctypes.c_int(1)
             # DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+ / 11)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
