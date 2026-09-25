@@ -3,8 +3,6 @@ from __future__ import annotations
 import ctypes
 import logging
 import math
-import os
-import subprocess
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
@@ -64,6 +62,15 @@ _COMMAND_STATUS = {
 }
 
 
+def format_hotkey(hotkey: str) -> str:
+    """"ctrl+alt+l" -> "Ctrl + Alt + L"."""
+    return " + ".join(key_labels(hotkey))
+
+
+def key_labels(hotkey: str) -> list[str]:
+    return [part.strip().capitalize() for part in hotkey.split("+")]
+
+
 def signal_show_window() -> None:
     handle = win32event.CreateEvent(None, False, False, SHOW_WINDOW_EVENT)
     win32event.SetEvent(handle)
@@ -81,11 +88,13 @@ class MainWindow:
         hotkey: str,
         icon_image,
         icon_file: Path | None = None,
-        settings_file: Path | None = None,
+        on_open_settings: Callable[[], None] = lambda: None,
     ):
         self.listener = listener
         self._on_state_changed = on_state_changed
-        self._settings_file = settings_file
+        self._on_open_settings = on_open_settings
+        self._icon_image = icon_image
+        self._icon_file = icon_file
         self._show_requested = threading.Event()
         self._quit_requested = threading.Event()
         self._show_event = win32event.CreateEvent(None, False, False, SHOW_WINDOW_EVENT)
@@ -115,8 +124,7 @@ class MainWindow:
 
         self._build(hotkey)
         self._center(WIDTH, HEIGHT)
-        self._set_icon(icon_image, icon_file)
-        self._dark_title_bar()
+        self.decorate(self.root)
         self._tick()
 
     # --- layout -------------------------------------------------------------
@@ -210,8 +218,8 @@ class MainWindow:
         self._images["gear"] = ImageTk.PhotoImage(ui_art.icon("icon_settings.png", 22, GEAR_COLOR))
         self._images["gear_hover"] = ImageTk.PhotoImage(ui_art.icon("icon_settings.png", 22, GEAR_HOVER_COLOR))
         self._gear = c.create_image(WIDTH - MARGIN - 12, foot_y, image=self._images["gear"], tags=("gear",))
-        keys = " + ".join(part.strip().capitalize() for part in hotkey.split("+"))
-        c.create_text(cx, foot_y + 28, text=f"{keys} — вкл / выкл     |     Esc — закрыть", fill=MUTED, font=(FONT, 9))
+        self._hotkey_text = c.create_text(cx, foot_y + 28, fill=MUTED, font=(FONT, 9))
+        self.set_hotkey(hotkey)
 
         c.bind("<Motion>", lambda e: self._set_hover(self._over_mic(e.x, e.y), self._gear_hover))
         c.bind("<Leave>", lambda _e: self._set_hover(False, False))
@@ -226,34 +234,32 @@ class MainWindow:
         y = max(0, (self.root.winfo_screenheight() - height) // 3)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _hwnd(self) -> int:
-        self.root.update_idletasks()
-        return ctypes.windll.user32.GetParent(self.root.winfo_id())
-
-    def _set_icon(self, icon_image, icon_file: Path | None) -> None:
+    def decorate(self, window: tk.Tk | tk.Toplevel) -> None:
+        """App icon and a dark title bar for this or another (settings) window."""
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
         try:
-            if icon_file is not None and icon_file.exists():
+            if self._icon_file is not None and self._icon_file.exists():
                 # Tk's iconbitmap stretches the .ico's 16 px image up for the
                 # taskbar; loading each size natively keeps it sharp.
-                hwnd = self._hwnd()
                 for which, metric in ((win32con.ICON_BIG, win32con.SM_CXICON), (win32con.ICON_SMALL, win32con.SM_CXSMICON)):
                     size = win32api.GetSystemMetrics(metric)
-                    handle = win32gui.LoadImage(0, str(icon_file), win32con.IMAGE_ICON, size, size, win32con.LR_LOADFROMFILE)
+                    handle = win32gui.LoadImage(0, str(self._icon_file), win32con.IMAGE_ICON, size, size, win32con.LR_LOADFROMFILE)
                     win32gui.SendMessage(hwnd, win32con.WM_SETICON, which, handle)
             else:
-                self._icon_photo = ImageTk.PhotoImage(icon_image)
-                self.root.iconphoto(True, self._icon_photo)
+                self._icon_photo = ImageTk.PhotoImage(self._icon_image)
+                window.iconphoto(False, self._icon_photo)
         except Exception:
             logger.debug("Could not set the window icon", exc_info=True)
-
-    def _dark_title_bar(self) -> None:
         try:
-            hwnd = self._hwnd()
             value = ctypes.c_int(1)
             # DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+ / 11)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
         except Exception:
             pass
+
+    def set_hotkey(self, hotkey: str) -> None:
+        self.canvas.itemconfigure(self._hotkey_text, text=f"{format_hotkey(hotkey)} — вкл / выкл     |     Esc — закрыть")
 
     # --- input --------------------------------------------------------------
 
@@ -271,18 +277,9 @@ class MainWindow:
 
     def _on_click(self, event) -> None:
         if self._gear_hover:
-            self._open_settings()
+            self._on_open_settings()
         elif self._over_mic(event.x, event.y):
             self.toggle()
-
-    def _open_settings(self) -> None:
-        if self._settings_file is None:
-            return
-        try:
-            os.startfile(str(self._settings_file))
-        except OSError:
-            # No app associated with .yaml on this machine.
-            subprocess.Popen(["notepad.exe", str(self._settings_file)])
 
     # --- state --------------------------------------------------------------
 
