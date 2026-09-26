@@ -71,6 +71,7 @@ class ActionExecutor:
             "select_exclusive_mode": self._h_select_exclusive_mode,
             "open_section": self._h_open_section,
             "cancel_search": self._h_cancel_search,
+            "close_process": self._h_close_process,
         }
 
     def request_stop(self) -> None:
@@ -409,6 +410,21 @@ class ActionExecutor:
                 "Dota 2 запущена, но главное меню не появилось за отведённое время "
                 "(возможно, идёт долгая загрузка или обновление - попробуй ещё раз, когда меню откроется)"
             )
+
+    def _h_close_process(self, step: dict, context: dict) -> None:
+        section_key = step["process_key"]
+        process_name = self.config.get(section_key, "process_name", default=None)
+        if not process_name:
+            raise ActionError(f"В config.yaml нет {section_key}.process_name")
+        if not process_utils.is_process_running(process_name):
+            logger.info("%s is not running, nothing to close.", process_name)
+            return
+        if not process_utils.close_process(
+            process_name, timeout=self._timeout(step, "process_close_sec"), stop_event=self._stop_event
+        ):
+            if self._stop_event.is_set():
+                return
+            raise ActionError("программа не закрылась - возможно, она ждёт подтверждения выхода")
 
     def _h_wait_window(self, step: dict, context: dict) -> None:
         title = self._fmt(step["title"], context)
