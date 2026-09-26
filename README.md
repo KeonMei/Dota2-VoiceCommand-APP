@@ -4,6 +4,7 @@
 
 A Windows voice assistant that reacts to spoken Russian commands to:
 - launch Steam, Dota 2, Chrome (opening Yandex Music) and Discord ("Basic minimum");
+- just launch or close Dota 2 ("Запусти доту", "Закрой доту");
 - drive Dota 2's client menus to queue a Ranked Roles match for a given role
   (e.g. "Start a ranked game as mid");
 - queue a normal Turbo or All Pick match with only that mode ticked
