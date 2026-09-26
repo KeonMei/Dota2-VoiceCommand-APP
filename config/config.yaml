@@ -57,6 +57,7 @@ timeouts:
   # to this long instead of guessing a fixed delay after a fresh launch.
   dota_menu_ready_sec: 60
   process_launch_sec: 15       # wait for the process to appear after launching the exe
+  process_close_sec: 30        # wait for a program to exit after asking it to close
   generic_step_sec: 10
 
 delays:
