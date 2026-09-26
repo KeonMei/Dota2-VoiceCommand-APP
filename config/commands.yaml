@@ -61,6 +61,13 @@
 #                        section is open, `inactive_template` while it's
 #                        closed. Clicks the header only when the closed look
 #                        matches better; does nothing if already open.
+#   close_process      - asks a program to quit the way its window's close
+#                        button does and waits for it to exit
+#                        (timeouts.process_close_sec). `process_key` names
+#                        the config.yaml section holding its process_name
+#                        (e.g. dota2). Never force-kills: if the program
+#                        shows a quit confirmation, it stays open and the
+#                        step fails. Does nothing if it isn't running.
 #   parallel           - `branches:` is a list of step lists. Branches run
 #                        at the same time (one thread each); steps inside a
 #                        branch run in order, so put dependent steps in the
@@ -150,6 +157,38 @@ commands:
 
       - type: notify
         text: "Базовый минимум выполнен"
+
+  - id: launch_dota
+    description: "Launch Dota 2 (through Steam) and wait for its main menu"
+    phrases:
+      - "запусти доту"
+      - "открой доту"
+      - "включи доту"
+      - "запусти дота два"
+      - "открой дота два"
+    match_threshold: 82
+    steps:
+      - type: notify
+        text: "Запускаю Доту"
+      # Starts Steam and Dota 2 if needed, skips the intro, waits for the
+      # main menu; if Dota 2 is already open, just brings its window up.
+      - type: ensure_dota_ready
+      - type: notify
+        text: "Дота готова"
+
+  - id: close_dota
+    description: "Close Dota 2"
+    phrases:
+      - "закрой доту"
+      - "выключи доту"
+      - "выйди из доты"
+      - "закрой дота два"
+    match_threshold: 82
+    steps:
+      - type: close_process
+        process_key: dota2
+      - type: notify
+        text: "Дота закрыта"
 
   - id: ranked_role
     description: "Start a Ranked Roles match for the given position"
