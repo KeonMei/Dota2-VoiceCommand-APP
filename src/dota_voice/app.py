@@ -5,7 +5,7 @@ import threading
 import time
 
 from .actions import ActionExecutor
-from .commands import CommandMatcher
+from .commands import CommandMatcher, normalize
 from .config import CommandsConfig, Config
 from .logging_setup import setup_logging
 from .notify import Notifier
@@ -50,12 +50,14 @@ class Application:
             icon_image=make_icon_image(True),
             icon_file=icon_file,
             on_open_settings=self._open_settings,
+            wake_word=self.active_wake_word(),
         )
         self._settings: SettingsWindow | None = None
 
         self._busy_lock = threading.Lock()
         self._pending_text = ""
         self._pending_since = 0.0
+        self._armed_until = 0.0
         self._check_resolution()
 
     def _open_settings(self) -> None:
@@ -86,8 +88,39 @@ class Application:
         else:
             logger.info("Screen resolution %sx%s matches the template calibration.", *current)
 
+    def active_wake_word(self) -> str | None:
+        if not self.config.get("speech", "wake_word_required", default=False):
+            return None
+        return str(self.config.get("speech", "wake_word", default="оракул"))
+
+    def _strip_wake_word(self, text: str, now: float) -> str:
+        """What follows the wake word, or the whole phrase while the wake
+        window is open; "" means the phrase is ignored."""
+        wake = normalize(str(self.config.get("speech", "wake_word", default="оракул")))
+        words = normalize(text).split()
+        if wake in words:
+            rest = words[len(words) - words[::-1].index(wake):]
+            self._pending_text = ""
+            self._set_armed_until(now + float(self.config.get("speech", "wake_window_sec", default=6)))
+            if not rest:
+                logger.info("Wake word heard, waiting for a command.")
+                self.notifier.chime()
+            return " ".join(rest)
+        if now <= self._armed_until:
+            return text
+        logger.debug("No wake word, ignoring: '%s'", text)
+        return ""
+
+    def _set_armed_until(self, deadline: float) -> None:
+        self._armed_until = deadline
+        self.window.armed_until = deadline
+
     def _on_text_recognized(self, text: str) -> None:
         now = time.monotonic()
+        if self.config.get("speech", "wake_word_required", default=False):
+            text = self._strip_wake_word(text, now)
+            if not text:
+                return
         pending = self._pending_text if now - self._pending_since <= _JOIN_WINDOW_SEC else ""
         spoken = text
         matched = self.matcher.match(text)
@@ -102,6 +135,7 @@ class Application:
             self._pending_since = now
             return
         self._pending_text = ""
+        self._set_armed_until(0.0)
 
         command, params = matched
 
