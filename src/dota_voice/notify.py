@@ -6,6 +6,7 @@ import threading
 import wave
 from pathlib import Path
 
+import numpy as np
 import pyttsx3
 import winsound
 
@@ -153,6 +154,29 @@ class Notifier:
             return
         with self._lock:
             self._speak_sync(text)
+
+    def chime(self) -> None:
+        """A short rising two-note cue: the wake word was heard, say the command."""
+        threading.Thread(target=self._play_chime, daemon=True).start()
+
+    def _play_chime(self) -> None:
+        rate = 22050
+        notes = []
+        for freq in (660, 990):
+            t = np.arange(int(rate * 0.09)) / rate
+            envelope = np.minimum(1, t / 0.005) * np.exp(-t * 18)
+            notes.append(np.sin(2 * np.pi * freq * t) * envelope)
+        samples = (np.concatenate(notes) * 32767 * min(1.0, self._volume * 2)).astype(np.int16)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(rate)
+            wav_file.writeframes(samples.tobytes())
+        try:
+            winsound.PlaySound(buffer.getvalue(), winsound.SND_MEMORY)
+        except RuntimeError:
+            logger.debug("Could not play the wake chime", exc_info=True)
 
     def beep(self, ok: bool = True) -> None:
         if not self._beep_enabled:
