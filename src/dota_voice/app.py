@@ -3,17 +3,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import TYPE_CHECKING
 
-from .actions import ActionExecutor
-from .commands import CommandMatcher, normalize
 from .config import CommandsConfig, Config
 from .logging_setup import setup_logging
-from .notify import Notifier
-from .settings_window import SettingsWindow
-from .speech import SpeechListener
 from .tray import TrayApp, make_icon_image
-from .vision import get_screen_resolution
 from .window import MainWindow
+
+if TYPE_CHECKING:
+    from .settings_window import SettingsWindow
 
 logger = logging.getLogger("dota_voice.app")
 
@@ -24,31 +22,28 @@ _JOIN_WINDOW_SEC = 3.0
 
 
 class Application:
+    """The window comes up first; speech recognition, command matching and
+    UI automation (the slow imports and the Vosk model) load in the
+    background while it shows "Загрузка…"."""
+
     def __init__(self):
+        self._started = time.perf_counter()
         self.config = Config.load()
         self.commands_config = CommandsConfig.load()
         setup_logging(self.config)
 
-        self.notifier = Notifier(self.config)
-        self.notifier.warm_up()
-        self.matcher = CommandMatcher(self.config, self.commands_config)
-        self.executor = ActionExecutor(self.config, self.notifier)
-        self.listener = SpeechListener(
-            self.config, on_text=self._on_text_recognized, commands_config=self.commands_config
-        )
-        self.tray = TrayApp(
-            self.config,
-            self.listener,
-            on_show_window=lambda: self.window.request_show(),
-            on_exit=lambda: self.window.request_quit(),
-        )
-        icon_file = self.config.resolve_path("assets/app.ico")
+        self.notifier = None
+        self.matcher = None
+        self.executor = None
+        self.listener = None
+        self.tray: TrayApp | None = None
+        self._startup_error: BaseException | None = None
         self.window = MainWindow(
-            self.listener,
-            on_state_changed=self.tray.refresh,
+            None,
+            on_state_changed=lambda: self.tray.refresh() if self.tray else None,
             hotkey=str(self.config.get("hotkeys", "toggle_listening", default="ctrl+alt+l")),
             icon_image=make_icon_image(True),
-            icon_file=icon_file,
+            icon_file=self.config.resolve_path("assets/app.ico"),
             on_open_settings=self._open_settings,
             wake_word=self.active_wake_word(),
         )
@@ -58,15 +53,69 @@ class Application:
         self._pending_text = ""
         self._pending_since = 0.0
         self._armed_until = 0.0
-        self._check_resolution()
+
+    def _load(self) -> None:
+        """Runs on a background thread; the window stays responsive meanwhile."""
+        try:
+            # The Vosk model loads in native code without holding the GIL, so
+            # it overlaps with the slow imports below.
+            speech: dict = {}
+
+            def _load_speech() -> None:
+                try:
+                    from .speech import SpeechListener
+
+                    speech["listener"] = SpeechListener(
+                        self.config, on_text=self._on_text_recognized, commands_config=self.commands_config
+                    )
+                except Exception as exc:
+                    speech["error"] = exc
+
+            speech_thread = threading.Thread(target=_load_speech, name="speech-model", daemon=True)
+            speech_thread.start()
+
+            from .actions import ActionExecutor
+            from .commands import CommandMatcher
+            from .notify import Notifier
+
+            self.notifier = Notifier(self.config)
+            self.matcher = CommandMatcher(self.config, self.commands_config)
+            self.executor = ActionExecutor(self.config, self.notifier)
+            speech_thread.join()
+            if "error" in speech:
+                raise speech["error"]
+            listener = speech["listener"]
+            listener.start()
+            self.tray = TrayApp(
+                self.config,
+                listener,
+                on_show_window=lambda: self.window.request_show(),
+                on_exit=lambda: self.window.request_quit(),
+            )
+            self.tray.start()
+            self.listener = self.window.listener = listener
+            logger.info("Ready in %.1fs.", time.perf_counter() - self._started)
+            # Loading the voice model is CPU-heavy - only now, so it doesn't slow the start.
+            self.notifier.warm_up()
+            self._check_resolution()
+        except Exception as exc:
+            logger.exception("Startup failed")
+            self._startup_error = exc
+            self.window.request_quit()
 
     def _open_settings(self) -> None:
+        if self.listener is None:
+            return
         if self._settings is not None and self._settings.alive:
             self._settings.focus()
             return
+        from .settings_window import SettingsWindow
+
         self._settings = SettingsWindow(self.window, self.config, self.listener, self.notifier, self.tray)
 
     def _check_resolution(self) -> None:
+        from .vision import get_screen_resolution
+
         configured = tuple(self.config.get("vision", "calibrated_resolution", default=[0, 0]))
         try:
             current = get_screen_resolution()
@@ -96,6 +145,8 @@ class Application:
     def _strip_wake_word(self, text: str, now: float) -> str:
         """What follows the wake word, or the whole phrase while the wake
         window is open; "" means the phrase is ignored."""
+        from .commands import normalize
+
         wake = normalize(str(self.config.get("speech", "wake_word", default="оракул")))
         words = normalize(text).split()
         if wake in words:
@@ -172,11 +223,16 @@ class Application:
 
     def run(self) -> None:
         logger.info("Starting Dota2 Voice Command Assistant")
-        self.listener.start()
-        self.tray.start()
+        # Paint the window before the loader's imports start competing for the GIL.
+        self.window.root.update()
+        threading.Thread(target=self._load, name="startup", daemon=True).start()
         try:
             self.window.run()
         finally:
-            self.listener.stop()
-            self.tray.stop()
+            if self.listener is not None:
+                self.listener.stop()
+            if self.tray is not None:
+                self.tray.stop()
             logger.info("Application stopped.")
+        if self._startup_error is not None:
+            raise self._startup_error
