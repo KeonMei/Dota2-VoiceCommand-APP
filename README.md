@@ -11,6 +11,10 @@ A Windows voice assistant that reacts to spoken Russian commands to:
   ("Запусти турбо", "Запусти олл пик");
 - stop ("Стоп") whatever command is currently running.
 
+Every command starts with the wake word — "Оракул, запусти турбо", or
+"Оракул", a short chime, then the command (the word can be changed or turned
+off in Settings).
+
 Speech recognition runs fully offline (Vosk). Clicking through Dota 2's own
 in-game UI is done with computer vision (OpenCV template matching), since the
 Panorama UI does not expose standard OS accessibility handles.
@@ -186,7 +190,7 @@ full traceback is saved to `logs/startup_error.log`.
 
 A window opens with a round microphone button that turns listening on/off
 (green and pulsing = listening), a live microphone level, the last command
-with its outcome, and example phrases. The gear opens Settings: microphone,
+with its outcome, and example phrases. The gear opens Settings: microphone and wake word,
 voice replies (on/off, voice, volume, tempo) and the listening hotkey — changes
 apply at once and are saved to `config.yaml`.
 Closing the window (or Esc) keeps the assistant
