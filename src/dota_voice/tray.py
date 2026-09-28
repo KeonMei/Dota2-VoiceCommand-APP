@@ -6,14 +6,16 @@ import subprocess
 import threading
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import keyboard
 import pystray
 from PIL import Image, ImageOps
 
 from .config import PROJECT_ROOT, Config
-from .speech import SpeechListener
+
+if TYPE_CHECKING:
+    from .speech import SpeechListener
 
 logger = logging.getLogger("dota_voice.tray")
 
