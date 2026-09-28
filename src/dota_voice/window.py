@@ -4,6 +4,7 @@ import ctypes
 import logging
 import math
 import threading
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
@@ -89,6 +90,7 @@ class MainWindow:
         icon_image,
         icon_file: Path | None = None,
         on_open_settings: Callable[[], None] = lambda: None,
+        wake_word: str | None = None,
     ):
         self.listener = listener
         self._on_state_changed = on_state_changed
@@ -102,7 +104,10 @@ class MainWindow:
         self._gear_hover = False
         self._phase = 0.0
         self._level = 0.0
-        self._shown_enabled: bool | None = None
+        self._shown_enabled: tuple[bool, bool] | None = None
+        # time.monotonic() until which a wake word keeps the assistant waiting
+        # for a command; written by the speech thread.
+        self.armed_until = 0.0
         self._shown_mic_key: tuple | None = None
         # (spoken text, outcome) - written from command threads, read by _tick.
         self._command: tuple[str, str] | None = None
@@ -123,6 +128,7 @@ class MainWindow:
         self.root.bind("<Escape>", lambda _e: self.hide())
 
         self._build(hotkey)
+        self.set_wake_word(wake_word)
         self._center(WIDTH, HEIGHT)
         self.decorate(self.root)
         self._tick()
@@ -190,7 +196,7 @@ class MainWindow:
         self._spinner = [ImageTk.PhotoImage(f) for f in ui_art.spinner_frames()]
 
         # Example phrases (not clickable yet)
-        c.create_text(MARGIN + 2, TILES_Y - 22, anchor="w", text="Попробуйте сказать", fill=TEXT, font=(FONT, 14, "bold"))
+        self._try_header = c.create_text(MARGIN + 2, TILES_Y - 22, anchor="w", fill=TEXT, font=(FONT, 14, "bold"))
         for (icon, label), (x0, y0, x1, y1) in zip(TRY_SAYING, tiles):
             my = (y0 + y1) / 2
             self._images[icon] = ImageTk.PhotoImage(ui_art.fitted_icon(icon, 21))
@@ -322,10 +328,11 @@ class MainWindow:
 
     def _render_status(self) -> None:
         enabled = self.listener.is_enabled
-        if self._shown_enabled == enabled:
+        armed = enabled and time.monotonic() < self.armed_until
+        if self._shown_enabled == (enabled, armed):
             return
-        self._shown_enabled = enabled
-        word = "Слушаю" if enabled else "На паузе"
+        self._shown_enabled = (enabled, armed)
+        word = "Жду команду" if armed else "Слушаю" if enabled else "На паузе"
         group = 10 + 10 + self._status_font.measure(word)
         left = WIDTH / 2 - group / 2
         c = self.canvas
@@ -333,10 +340,18 @@ class MainWindow:
         c.coords(self._status_dot, left + 5, 324)
         c.itemconfigure(self._status_text, text=word, fill=ON if enabled else MUTED)
         c.coords(self._status_text, left + 20, 324)
-        c.itemconfigure(
-            self._caption,
-            text="Нажмите на микрофон, чтобы поставить на паузу" if enabled else "Нажмите на микрофон, чтобы включить",
-        )
+        if armed:
+            caption = "Скажите команду"
+        elif enabled:
+            caption = "Нажмите на микрофон, чтобы поставить на паузу"
+        else:
+            caption = "Нажмите на микрофон, чтобы включить"
+        c.itemconfigure(self._caption, text=caption)
+
+    def set_wake_word(self, word: str | None) -> None:
+        """None = the wake word is off; the example phrases are then said as is."""
+        header = f"Скажите «{word.capitalize()}», затем" if word else "Попробуйте сказать"
+        self.canvas.itemconfigure(self._try_header, text=header)
 
     def _render_command(self) -> None:
         command = self._command
