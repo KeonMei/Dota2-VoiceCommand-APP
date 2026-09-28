@@ -8,7 +8,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import win32api
 import win32con
@@ -17,7 +17,9 @@ import win32gui
 from PIL import ImageTk
 
 from . import ui_art
-from .speech import SpeechListener
+
+if TYPE_CHECKING:
+    from .speech import SpeechListener
 
 logger = logging.getLogger("dota_voice.window")
 
@@ -84,7 +86,7 @@ class MainWindow:
 
     def __init__(
         self,
-        listener: SpeechListener,
+        listener: SpeechListener | None,
         on_state_changed: Callable[[], None],
         hotkey: str,
         icon_image,
@@ -104,7 +106,7 @@ class MainWindow:
         self._gear_hover = False
         self._phase = 0.0
         self._level = 0.0
-        self._shown_enabled: tuple[bool, bool] | None = None
+        self._shown_enabled: tuple[bool, bool, bool] | None = None
         # time.monotonic() until which a wake word keeps the assistant waiting
         # for a command; written by the speech thread.
         self.armed_until = 0.0
@@ -290,16 +292,21 @@ class MainWindow:
     # --- state --------------------------------------------------------------
 
     def toggle(self) -> None:
+        if self.listener is None:
+            return
         self.listener.toggle_enabled()
         self._on_state_changed()
         self._render()
+
+    def _listening(self) -> bool:
+        return self.listener is not None and self.listener.is_enabled
 
     def show_command(self, text: str, outcome: str) -> None:
         """Safe to call from any thread. outcome: running / done / stopped / failed."""
         self._command = (text, outcome)
 
     def _render_mic(self) -> None:
-        enabled = self.listener.is_enabled
+        enabled = self._listening()
         pulse = (math.sin(self._phase) + 1) / 2 if enabled else 0.0
         frame = self._mic_art.frame(enabled, self._mic_hover, pulse)
         key = id(frame)
@@ -308,7 +315,7 @@ class MainWindow:
             self._images["mic"].paste(frame)
 
     def _render_wave(self) -> None:
-        enabled = self.listener.is_enabled
+        enabled = self._listening()
         target = self.listener.level if enabled else 0.0
         # Fast attack, slow release, so speech reads as a smooth envelope.
         self._level = target if target > self._level else self._level * 0.88 + target * 0.12
@@ -327,12 +334,13 @@ class MainWindow:
             c.itemconfigure(bar, fill=color)
 
     def _render_status(self) -> None:
-        enabled = self.listener.is_enabled
+        loading = self.listener is None
+        enabled = self._listening()
         armed = enabled and time.monotonic() < self.armed_until
-        if self._shown_enabled == (enabled, armed):
+        if self._shown_enabled == (loading, enabled, armed):
             return
-        self._shown_enabled = (enabled, armed)
-        word = "Жду команду" if armed else "Слушаю" if enabled else "На паузе"
+        self._shown_enabled = (loading, enabled, armed)
+        word = "Загрузка…" if loading else "Жду команду" if armed else "Слушаю" if enabled else "На паузе"
         group = 10 + 10 + self._status_font.measure(word)
         left = WIDTH / 2 - group / 2
         c = self.canvas
@@ -340,7 +348,9 @@ class MainWindow:
         c.coords(self._status_dot, left + 5, 324)
         c.itemconfigure(self._status_text, text=word, fill=ON if enabled else MUTED)
         c.coords(self._status_text, left + 20, 324)
-        if armed:
+        if loading:
+            caption = "Загружаю распознавание речи"
+        elif armed:
             caption = "Скажите команду"
         elif enabled:
             caption = "Нажмите на микрофон, чтобы поставить на паузу"
