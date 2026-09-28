@@ -20,8 +20,13 @@ speech:
   # Microphone name as shown in the Settings window (an index also works).
   # null = system default device.
   input_device: "Микрофон (HyperX Cloud III)"
-  # Listen without an activation keyword - every phrase is checked against the command list.
-  wake_word_required: false
+  # Only act on phrases that start with the wake word: "Оракул, запусти турбо"
+  # in one go, or "Оракул", a short chime, then the command within
+  # wake_window_sec. false = every phrase is checked against the command list.
+  wake_word_required: true
+  # Selectable in Settings: оракул, джарвис, эгида, скайнет.
+  wake_word: "оракул"
+  wake_window_sec: 6
 
 hotkeys:
   # Global hotkey to toggle microphone listening on/off (via the `keyboard` library).
