@@ -21,6 +21,7 @@ logger = logging.getLogger("dota_voice.speech")
 vosk.SetLogLevel(-1)
 
 _UNKNOWN = "[unk]"
+WAKE_WORD_OPTIONS = ["оракул", "джарвис", "эгида", "скайнет"]
 
 
 def _loudness(data: bytes) -> float:
@@ -93,6 +94,9 @@ def command_words(config: Config, commands_config: CommandsConfig) -> set[str]:
             else:
                 words.update(normalize(phrase).split())
     words.update(normalize(" ".join(config.get("speech", "extra_words", default=[]) or [])).split())
+    # Every selectable wake word, so switching it in Settings needs no grammar rebuild.
+    words.update(WAKE_WORD_OPTIONS)
+    words.update(normalize(str(config.get("speech", "wake_word", default="") or "")).split())
     return words
 
 
