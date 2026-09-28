@@ -11,7 +11,7 @@ from PIL import ImageTk
 from . import ui_art
 from .config import Config
 from .notify import Notifier
-from .speech import SpeechListener, input_devices
+from .speech import WAKE_WORD_OPTIONS, SpeechListener, input_devices
 from .window import ACCENT, FONT, MUTED, SUBTLE, TEXT, key_labels
 
 if TYPE_CHECKING:
@@ -20,16 +20,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("dota_voice.settings")
 
-WIDTH, HEIGHT = 470, 614
-CARDS = [(18, 80, 452, 225), (18, 236, 452, 455), (18, 466, 452, 574)]
+DY = 75  # height of the wake word rows added to the microphone card
+WIDTH, HEIGHT = 470, 614 + DY
+CARDS = [(18, 80, 452, 225 + DY), (18, 236 + DY, 452, 455 + DY), (18, 466 + DY, 452, 574 + DY)]
 MIC_FIELD = (35, 142, 436, 169)
-VOICE_FIELD = (143, 312, 436, 339)
 LEVEL_BAR = (35, 183, 436, 191)
-TOGGLE = (398, 282, 436, 302)
-VOLUME_SLIDER = (143, 350, 398, 370)
-TEMPO_SLIDER = (143, 379, 398, 399)
-PREVIEW_BUTTON = (36, 410, 176, 442)
-KEY_FIELD_RIGHT, KEY_FIELD_Y = 434, (507, 543)
+WAKE_TOGGLE = (398, 228, 436, 248)
+WAKE_FIELD = (143, 259, 436, 286)
+TOGGLE = (398, 282 + DY, 436, 302 + DY)
+VOICE_FIELD = (143, 312 + DY, 436, 339 + DY)
+VOLUME_SLIDER = (143, 350 + DY, 398, 370 + DY)
+TEMPO_SLIDER = (143, 379 + DY, 398, 399 + DY)
+PREVIEW_BUTTON = (36, 410 + DY, 176, 442 + DY)
+KEY_FIELD_RIGHT, KEY_FIELD_Y = 434, (507 + DY, 543 + DY)
 
 SYSTEM_DEFAULT_MIC = "Системный по умолчанию"
 SAPI_VOICE = "sapi"
@@ -40,6 +43,8 @@ SAPI_BASE_RATE = 175
 # The values config.yaml ships with.
 DEFAULTS = {
     "input_device": None,
+    "wake_word_required": True,
+    "wake_word": "оракул",
     "tts_enabled": True,
     "voice": "models/piper/ru_RU-denis-medium.onnx",
     "tts_volume": 0.15,
@@ -131,7 +136,9 @@ class SettingsWindow:
     def _build(self) -> None:
         c = self.canvas = tk.Canvas(self.top, width=WIDTH, height=HEIGHT, highlightthickness=0, bd=0)
         c.pack()
-        boxes = [(*card, 12) for card in CARDS] + [(*MIC_FIELD, 6, *ui_art.FIELD), (*VOICE_FIELD, 6, *ui_art.FIELD)]
+        boxes = [(*card, 12) for card in CARDS] + [
+            (*field, 6, *ui_art.FIELD) for field in (MIC_FIELD, WAKE_FIELD, VOICE_FIELD)
+        ]
         self.background = ui_art.render_background((WIDTH, HEIGHT), boxes, art="background_settings.webp")
         self._images: dict[str, ImageTk.PhotoImage] = {"background": ImageTk.PhotoImage(self.background)}
         c.create_image(0, 0, image=self._images["background"], anchor="nw")
@@ -156,19 +163,28 @@ class SettingsWindow:
         self._level_item = c.create_image(LEVEL_BAR[0], LEVEL_BAR[1], anchor="nw")
         self._mic_hint = c.create_text(35, 206, anchor="w", fill=MUTED, font=self.small_font)
         self._set_mic_hint()
+        c.create_text(35, 238, anchor="w", text="Слово-активатор", fill=TEXT, font=self.font)
+        self.wake_toggle = _Toggle(
+            self, WAKE_TOGGLE, bool(self.config.get("speech", "wake_word_required", default=False)), self._set_wake_required
+        )
+        c.create_text(35, 272.5, anchor="w", text="Слово", fill=TEXT, font=self.font)
+        self.wake_dropdown = _Dropdown(
+            self, WAKE_FIELD, [(word.capitalize(), word) for word in WAKE_WORD_OPTIONS],
+            str(self.config.get("speech", "wake_word", default="оракул")), self._set_wake_word,
+        )
 
         # Voice replies
-        c.create_text(35, 292, anchor="w", text="Озвучивать ответы", fill=TEXT, font=self.font)
+        c.create_text(35, 292 + DY, anchor="w", text="Озвучивать ответы", fill=TEXT, font=self.font)
         self.tts_toggle = _Toggle(self, TOGGLE, bool(self.config.get("feedback", "tts_enabled", default=True)), self._set_tts_enabled)
-        c.create_text(35, 325.5, anchor="w", text="Голос", fill=TEXT, font=self.font)
+        c.create_text(35, 325.5 + DY, anchor="w", text="Голос", fill=TEXT, font=self.font)
         self.voice_dropdown = _Dropdown(self, VOICE_FIELD, voice_options(self.config), self._current_voice(), self._set_voice)
-        c.create_text(35, 360, anchor="w", text="Громкость", fill=TEXT, font=self.font)
+        c.create_text(35, 360 + DY, anchor="w", text="Громкость", fill=TEXT, font=self.font)
         self.volume_slider = _Slider(
             self, VOLUME_SLIDER, 0.0, 1.0, 0.01,
             float(self.config.get("feedback", "tts_volume", default=0.55)),
             lambda v: f"{round(v * 100)}%", self._set_volume,
         )
-        c.create_text(35, 389, anchor="w", text="Темп речи", fill=TEXT, font=self.font)
+        c.create_text(35, 389 + DY, anchor="w", text="Темп речи", fill=TEXT, font=self.font)
         self.tempo_slider = _Slider(
             self, TEMPO_SLIDER, 0.6, 1.6, 0.05, self._current_speed(),
             lambda v: f"{v:.2f}".rstrip("0").rstrip(".") + "×", self._set_speed,
@@ -176,16 +192,16 @@ class SettingsWindow:
         self.preview_button = _Button(self, PREVIEW_BUTTON, "Прослушать", self._preview)
 
         # Hotkey
-        c.create_text(35, 526, anchor="w", text="Вкл / выкл прослушивание", fill=TEXT, font=self.font)
+        c.create_text(35, 526 + DY, anchor="w", text="Вкл / выкл прослушивание", fill=TEXT, font=self.font)
         self._key_field = c.create_image(0, KEY_FIELD_Y[0], anchor="nw", tags=("key_field",))
         self._key_texts: list[int] = []
-        self._key_hint = c.create_text(35, 554, anchor="w", fill=MUTED, font=self.small_font)
+        self._key_hint = c.create_text(35, 554 + DY, anchor="w", fill=MUTED, font=self.small_font)
         c.tag_bind("key_field", "<Button-1>", lambda _e: self._start_recording())
         c.tag_bind("key_field", "<Enter>", lambda _e: c.configure(cursor="hand2"))
         c.tag_bind("key_field", "<Leave>", lambda _e: c.configure(cursor=""))
         self._render_hotkey()
 
-        reset = c.create_text(WIDTH / 2, 591, text="Сбросить по умолчанию", fill=SUBTLE, font=(FONT, 10), tags=("reset",))
+        reset = c.create_text(WIDTH / 2, 591 + DY, text="Сбросить по умолчанию", fill=SUBTLE, font=(FONT, 10), tags=("reset",))
         c.tag_bind("reset", "<Enter>", lambda _e: (c.itemconfigure(reset, fill=TEXT), c.configure(cursor="hand2")))
         c.tag_bind("reset", "<Leave>", lambda _e: (c.itemconfigure(reset, fill=SUBTLE), c.configure(cursor="")))
         c.tag_bind("reset", "<Button-1>", lambda _e: self._reset())
@@ -246,6 +262,19 @@ class SettingsWindow:
     def _set_mic_hint(self, text: str = "Скажите что-нибудь — полоса должна двигаться", error: bool = False) -> None:
         self.canvas.itemconfigure(self._mic_hint, text=text, fill=ACCENT if error else MUTED)
 
+    def _set_wake_required(self, required: bool) -> None:
+        self._store("speech", "wake_word_required", required)
+        self._show_wake_word()
+
+    def _set_wake_word(self, word: str) -> bool:
+        self._store("speech", "wake_word", word)
+        self._show_wake_word()
+        return True
+
+    def _show_wake_word(self) -> None:
+        required = self.config.get("speech", "wake_word_required", default=False)
+        self.main.set_wake_word(str(self.config.get("speech", "wake_word", default="оракул")) if required else None)
+
     def _set_tts_enabled(self, enabled: bool) -> None:
         self.notifier.configure(enabled=enabled)
         self._store("feedback", "tts_enabled", enabled)
@@ -289,6 +318,8 @@ class SettingsWindow:
         self._stop_recording()
         if self.mic_dropdown.value != DEFAULTS["input_device"]:
             self.mic_dropdown.choose(DEFAULTS["input_device"])
+        self.wake_toggle.set(DEFAULTS["wake_word_required"], notify=True)
+        self.wake_dropdown.choose(DEFAULTS["wake_word"])
         self.tts_toggle.set(DEFAULTS["tts_enabled"], notify=True)
         voices = [v for _, v in voice_options(self.config)]
         self.voice_dropdown.choose(DEFAULTS["voice"] if DEFAULTS["voice"] in voices else voices[0])
