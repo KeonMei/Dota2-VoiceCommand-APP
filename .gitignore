@@ -12,6 +12,7 @@ logs/*.log*
 
 # Пользовательские шаблоны UI - разные под каждое разрешение экрана,
 # храним свои локально, не коммитим чужие калибровки.
+# Ready-made sets for a known setup live in templates/presets/ (committed).
 templates/*.png
 
 .vscode/
