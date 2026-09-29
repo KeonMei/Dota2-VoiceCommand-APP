@@ -2,18 +2,34 @@
 
 # Dota2 Voice Command Assistant
 
-A Windows voice assistant that reacts to spoken Russian commands to:
-- launch Steam, Dota 2, Chrome (opening Yandex Music) and Discord ("Basic minimum");
-- just launch or close Dota 2 ("Запусти доту", "Закрой доту");
-- drive Dota 2's client menus to queue a Ranked Roles match for a given role
-  (e.g. "Start a ranked game as mid");
-- queue a normal Turbo or All Pick match with only that mode ticked
-  ("Запусти турбо", "Запусти олл пик");
-- stop ("Стоп") whatever command is currently running.
+A Windows voice assistant for Dota 2 that understands spoken Russian: it
+launches the game and your usual apps and queues matches for you by clicking
+through the Dota 2 client — fully offline.
 
-Every command starts with the wake word — "Оракул, запусти турбо", or
-"Оракул", a short chime, then the command (the word can be changed or turned
-off in Settings).
+<p align="center">
+  <img src="docs/screenshots/main_window.png" alt="Main window" width="380">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/settings_window.png" alt="Settings window" width="380">
+</p>
+
+## Voice commands
+
+Every command starts with the wake word **«Оракул»**: say it in one go
+(«Оракул, запусти турбо»), or say «Оракул», wait for the short chime, then
+the command. The word can be changed or turned off in Settings.
+
+| Say | What happens |
+|---|---|
+| «Оракул, базовый минимум» | Launches Steam, Dota 2, Chrome with Yandex Music and Discord at once |
+| «Оракул, запусти доту» / «Оракул, закрой доту» | Just launches or closes Dota 2 |
+| «Оракул, рейтинг на мид» | Queues a Ranked Roles match for the role: керри, мид, хард, поддержка, полная поддержка — or by position («третья позиция», «пятёрка») |
+| «Оракул, запусти турбо» / «Оракул, запусти олл пик» | Queues a normal match with only that mode ticked |
+| «Оракул, стоп» | Interrupts the command that is running |
+
+Every command has more phrasings — see [config/commands.yaml](config/commands.yaml).
+Spoken replies confirm what's happening; the voice, volume and tempo are in Settings.
+
+## How it works
 
 Speech recognition runs fully offline (Vosk). Clicking through Dota 2's own
 in-game UI is done with computer vision (OpenCV template matching), since the
@@ -240,7 +256,7 @@ rectangle around the element — crop the unselected/selected pair identically
 so only the highlight differs. Repeat for every name in the table, then test:
 
 ```
-"Начни рейтинговую игру на мидера"
+"Оракул, рейтинг на мид"
 ```
 
 ...and immediately again with a different role, to confirm the previous one
