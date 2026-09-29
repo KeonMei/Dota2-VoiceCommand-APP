@@ -79,6 +79,7 @@ config/
 assets/                         # app icon (app_icon.png) and window art/icons (ui/)
 models/                         # Vosk speech model and Piper voices (downloaded separately)
 templates/                      # reference PNG crops of Dota 2 UI elements (produced by calibration)
+    presets/1920x1080-ru/       # ready-made set for a 1920x1080 screen and the Russian client
 logs/                           # app.log (rotated)
 ```
 
@@ -186,6 +187,17 @@ are calibrated for:
 python tools/calibrate.py --check-resolution
 ```
 
+UI templates: if your screen is **1920×1080** and the Dota 2 client is in
+**Russian** with the default interface scale, use the ready-made set and skip
+calibration:
+
+```bash
+copy templates\presets\1920x1080-ru\*.png templates\
+```
+
+Otherwise calibrate your own (section 5). Your own templates in `templates/`
+stay out of git.
+
 Run it:
 
 ```bash
@@ -218,6 +230,10 @@ stream. If the hotkey doesn't fire, try running `python main.py` from an
 elevated PowerShell — the `keyboard` library sometimes needs that on Windows.
 
 ## 5. Calibrating Dota 2 templates for your resolution
+
+Not needed if the ready-made `templates/presets/1920x1080-ru` set fits your
+setup (see section 4). If a single element isn't found with it, recalibrate
+just that template.
 
 The "start a ranked game as ..." command relies on 14 templates, plus 2
 optional ones for cancelling a search that's already running, calibrated
